@@ -12,6 +12,40 @@ class FakeModel:
     def eval(self): return self
 
 class ApiTests(unittest.TestCase):
+    def test_poll_recovers_and_preserves_partial(self):
+        fake=types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=lambda:0,OutOfMemoryError=MemoryError,empty_cache=lambda:None))
+        async def run():
+            app=boitia_server.create_app(FakeModel(),None,'BoitIA')
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test') as c:
+                base=boitia_server.BASE
+                body={'model':'boitia','messages':[{'role':'user','content':'Hola'}],'stream':True,'transport':'poll'}
+                def partial(*args, **kwargs):
+                    kwargs['on_text']('Respuesta parcial')
+                    raise RuntimeError('test')
+                async def submit(fn):
+                    with patch.object(boitia_server,'respond',side_effect=fn) as mock:
+                        r=await c.post(base+'/chat/completions',json=body)
+                        self.assertEqual(r.status_code,202)
+                        url=base+'/jobs/'+r.json()['job_id']
+                        for _ in range(100):
+                            status=(await c.get(url)).json()
+                            if status['status']!='running':break
+                            await asyncio.sleep(.01)
+                        self.assertEqual(mock.call_count,1)
+                        self.assertEqual((await c.get(url)).json(),status)
+                        return url,status
+                url,result=await submit(partial)
+                self.assertEqual((result['status'],result['text']),('error','Respuesta parcial'))
+                self.assertTrue((await c.delete(url)).json()['cancelled'])
+                self.assertEqual((await c.get(url)).status_code,404)
+                def complete(*args, **kwargs):
+                    kwargs['on_text']('Bien')
+                    return Result('Bien',2,1,0.1,'stop',.05,.08)
+                _,result=await submit(complete)
+                self.assertEqual((result['status'],result['text']),('done','Bien'))
+                self.assertEqual(result['metrics']['ttft_seconds'],.05)
+        with patch.dict(sys.modules,{'torch':fake}):asyncio.run(run())
+
     def test_routes_and_validation(self):
         fake=types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=lambda:0,OutOfMemoryError=MemoryError,empty_cache=lambda:None))
         async def run():

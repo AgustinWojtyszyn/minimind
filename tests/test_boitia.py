@@ -19,13 +19,40 @@ class Tests(unittest.TestCase):
     def test_bound(self):
         with self.assertRaises(ValueError): solve({str(i):(1,1) for i in range(9)},[],{})
     def test_cases(self):
-        items=list(cases());self.assertEqual(len(items),19);self.assertEqual(len(set(c['id'] for c in items)),19)
+        items=list(cases());self.assertEqual(len(items),21);self.assertEqual(len(set(c['id'] for c in items)),21)
         for c in items[:10]:
             e=c['expected'];self.assertTrue(grade(json.dumps({'cost':e['cost'],'valid':e['valid'],'order':e['orders'][0]}),e))
+    def test_justification_rubric(self):
+        self.assertFalse(grade('372',{'numbers':['391','372','19']}))
+        self.assertTrue(grade('17 × 23 = 391; 391 - 19 = 372',{'numbers':['391','372','19']}))
     def test_models(self):
         self.assertEqual(select_candidates([10,10],40)[0].model_id,'Qwen/Qwen3-14B')
         self.assertEqual(select_candidates([3,3],5)[0].model_id,'Qwen/Qwen2.5-1.5B-Instruct')
         self.assertFalse(select_candidates([0],100))
+    def test_deep_streams_single_pass(self):
+        from unittest.mock import patch
+        from boitia.inference import Result, respond
+        with patch.dict('os.environ',{'BOITIA_LEGACY_REVIEW':'0'}), patch('boitia.inference.generate',return_value=Result('Justificación',2,3,1,'stop')) as mock:
+            msgs=[{'role':'system','content':'Sistema'},{'role':'user','content':'Justifica'}]
+            respond(None,None,msgs,'deep',on_text=lambda x:None)
+            self.assertEqual(mock.call_count,1)
+            self.assertIn('justificación',mock.call_args.args[2][0]['content'])
+            self.assertEqual(msgs[0]['content'],'Sistema')
+    def test_model_comparison_gate(self):
+        from boitia.compare import compare
+        base={'mode':'balanced','devices':['T4','T4'],'results':[{'id':'a','passed':True},{'id':'b','passed':False}],
+              'summary':{'wall_seconds':10,'request_first_visible_seconds':2}}
+        candidate={**base,'results':[{'id':'a','passed':True},{'id':'b','passed':True}]}
+        self.assertTrue(compare(base,candidate)['eligible'])
+        self.assertFalse(compare(base,base)['eligible'])
+        self.assertFalse(compare(base,{**candidate,'summary':{'wall_seconds':20,'request_first_visible_seconds':2}})['eligible'])
+        self.assertFalse(compare(base,{**candidate,'devices':['T4']})['eligible'])
+    def test_adaptive_budget(self):
+        from boitia.inference import adaptive_budget
+        self.assertEqual(adaptive_budget([{'content':'Hola!'}],'balanced'),64)
+        self.assertEqual(adaptive_budget([{'content':'Hola, justifica el resultado'}],'balanced'),1536)
+        self.assertEqual(adaptive_budget([{'content':'Hola!'}],'deep'),3072)
+        self.assertEqual(adaptive_budget([{'content':'Hola!'}],'fast',10),10)
     def test_profiles(self): self.assertLess(PROFILES['fast'].output,PROFILES['balanced'].output);self.assertLess(PROFILES['balanced'].output,PROFILES['deep'].output)
     def test_memory(self): self.assertEqual(select_memories('mi perro Kiara',['perro Kiara marrón','compré pan']),['perro Kiara marrón'])
     def test_calculator(self):

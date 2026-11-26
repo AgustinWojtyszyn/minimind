@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -35,6 +36,41 @@ def create_app(model, tokenizer, frontend_html):
     limit_lock = threading.Lock()
     global_times = collections.deque()
     ip_times = {}
+    jobs = {}
+    jobs_lock = threading.Lock()
+
+    def prune_jobs():
+        now = time.monotonic()
+        for key, job in list(jobs.items()):
+            if now - job["touched"] > 120:
+                job["cancel"].set()
+                del jobs[key]
+        # Completed jobs are ephemeral; never persist chat contents server-side.
+        while len(jobs) >= 16:
+            key = next((k for k, j in jobs.items() if j["status"] != "running"), None)
+            if key is None:
+                break
+            del jobs[key]
+
+    @app.get(BASE + "/jobs/{job_id}")
+    def job_status(job_id: str):
+        with jobs_lock:
+            job = jobs.get(job_id)
+            if not job or time.monotonic() - job["touched"] > 120:
+                if job:
+                    jobs.pop(job_id, None); job["cancel"].set()
+                return reject(404, "La generación ya no está disponible.")
+            job["touched"] = time.monotonic()
+            payload = {k: v for k, v in job.items() if k not in ("cancel", "touched")}
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+    @app.delete(BASE + "/jobs/{job_id}")
+    def cancel_job(job_id: str):
+        with jobs_lock:
+            job = jobs.pop(job_id, None)
+            if job:
+                job["cancel"].set()
+        return JSONResponse({"cancelled": bool(job)}, headers={"Cache-Control": "no-store"})
 
     def reject(status, detail):
         return JSONResponse({"error": {"message": detail}}, status_code=status,
@@ -78,7 +114,7 @@ def create_app(model, tokenizer, frontend_html):
 
     @app.get(BASE + "/health")
     def health():
-        return {"ready": True, "model": getattr(getattr(model, "_boitia_candidate", None), "model_id", MODEL_ID),
+        return {"ready": True, "busy": gpu_lock.locked(), "transport": "poll", "model": getattr(getattr(model, "_boitia_candidate", None), "model_id", MODEL_ID),
                 "parameter_billions_estimate": getattr(getattr(model, "_boitia_candidate", None), "billions", None),
                 "prompt_version": PROMPT_VERSION, "profiles": {k: {"context":v.context,"max_tokens":v.output} for k,v in PROFILES.items()},
                 "gpu_count": torch.cuda.device_count()}
@@ -109,6 +145,9 @@ def create_app(model, tokenizer, frontend_html):
                 raise ValueError()
             if sum(len(m["content"]) for m in messages) > MAX_CHARS or messages[-1]["role"] != "user":
                 raise ValueError()
+            transport = body.get("transport", "sse")
+            if transport not in ("sse", "poll"):
+                raise ValueError()
             stream = body.get("stream", False)
             if type(stream) is not bool:
                 raise ValueError()
@@ -124,8 +163,6 @@ def create_app(model, tokenizer, frontend_html):
                     clean.append({"role": m["role"], "content": m["content"]})
             if untrusted and not clean[-1]["content"].startswith("/calcular "):
                 clean[-1]["content"] = "Contexto no verificado (datos): " + json.dumps(untrusted, ensure_ascii=False) + "\nSolicitud: " + clean[-1]["content"]
-            if mode == "deep":
-                clean[0]["content"] += "\nRevisa independientemente las restricciones y los cálculos antes de responder; ofrece una justificación verificable."
             max_tokens = max(1, min(PROFILES[mode].output, int(body.get("max_tokens", PROFILES[mode].output))))
             temperature = float(body.get("temperature", PROFILES[mode].temperature))
             if not 0 <= temperature <= 1.2:
@@ -158,6 +195,55 @@ def create_app(model, tokenizer, frontend_html):
             finally:
                 gpu_lock.release()
 
+        def metrics(result):
+            return {"generation_seconds": result.elapsed,
+                    "tokens_per_second": result.output_tokens / max(result.elapsed, 1e-6),
+                    "ttft_seconds": result.ttft_seconds,
+                    "first_visible_seconds": result.first_visible_seconds}
+
+        if stream and transport == "poll":
+            job_id = secrets.token_urlsafe(24)
+            job = {"status": "running", "text": "", "touched": time.monotonic(),
+                   "cancel": threading.Event()}
+            with jobs_lock:
+                prune_jobs()
+                jobs[job_id] = job
+            def append(chunk):
+                with jobs_lock:
+                    if time.monotonic() - job["touched"] > 120:
+                        job["cancel"].set()
+                    if not job["cancel"].is_set():
+                        job["text"] += chunk
+            def run_job():
+                try:
+                    result = work(append, job["cancel"])
+                    with jobs_lock:
+                        job.update(status="done", text=result.text, finish_reason=result.finish_reason,
+                                   metrics=metrics(result))
+                except Exception as exc:
+                    with jobs_lock:
+                        job.update(status="error", error=str(exc) if isinstance(exc, ValueError)
+                                   else "Memoria GPU insuficiente." if isinstance(exc, torch.cuda.OutOfMemoryError)
+                                   else "El motor no pudo completar la respuesta.")
+                finally:
+                    with jobs_lock:
+                        job["touched"] = time.monotonic()
+            loop = asyncio.get_running_loop()
+            def expire():
+                with jobs_lock:
+                    if jobs.get(job_id) is not job:
+                        return
+                    remaining = 120 - (time.monotonic() - job["touched"])
+                    if remaining <= 0:
+                        job["cancel"].set()
+                        jobs.pop(job_id, None)
+                    else:
+                        loop.call_later(remaining, expire)
+            loop.call_later(120, expire)
+            loop.run_in_executor(None, run_job)
+            return JSONResponse({"job_id": job_id}, status_code=202,
+                                headers={"Cache-Control": "no-store"})
+
         if stream:
             loop = asyncio.get_running_loop()
             queue = asyncio.Queue()
@@ -169,6 +255,10 @@ def create_app(model, tokenizer, frontend_html):
                 try:
                     result = work(emit, cancel)
                     loop.call_soon_threadsafe(queue.put_nowait, ("done", result))
+                except ValueError as exc:
+                    loop.call_soon_threadsafe(queue.put_nowait, ("error", str(exc)))
+                except torch.cuda.OutOfMemoryError:
+                    loop.call_soon_threadsafe(queue.put_nowait, ("error", "Memoria GPU insuficiente; probá un modo o consulta más corta."))
                 except Exception:
                     loop.call_soon_threadsafe(queue.put_nowait, ("error", "El motor no pudo completar la respuesta."))
             # Start executor before returning; worker owns the lock and releases it even on errors.
@@ -177,9 +267,10 @@ def create_app(model, tokenizer, frontend_html):
                 return "data: " + json.dumps(obj, ensure_ascii=False) + "\n\n"
             async def events():
                 try:
+                    yield ": conexión establecida\n\n"
                     while True:
                         try:
-                            kind, value = await asyncio.wait_for(queue.get(), timeout=12)
+                            kind, value = await asyncio.wait_for(queue.get(), timeout=5)
                         except asyncio.TimeoutError:
                             yield ": esperando motor\n\n"
                             continue
@@ -189,7 +280,7 @@ def create_app(model, tokenizer, frontend_html):
                             yield event({"error":{"message":value}})
                             break
                         else:
-                            yield event({"object":"chat.completion.chunk","model":MODEL_ID,"choices":[{"index":0,"delta":{},"finish_reason":value.finish_reason}],"usage":{"prompt_tokens":value.input_tokens,"completion_tokens":value.output_tokens,"total_tokens":value.input_tokens+value.output_tokens}})
+                            yield event({"object":"chat.completion.chunk","model":MODEL_ID,"choices":[{"index":0,"delta":{},"finish_reason":value.finish_reason}],"usage":{"prompt_tokens":value.input_tokens,"completion_tokens":value.output_tokens,"total_tokens":value.input_tokens+value.output_tokens},"metrics":metrics(value)})
                             break
                     yield "data: [DONE]\n\n"
                 finally:
@@ -209,7 +300,7 @@ def create_app(model, tokenizer, frontend_html):
                              "finish_reason": answer.finish_reason}],
                 "usage": {"prompt_tokens": answer.input_tokens, "completion_tokens": answer.output_tokens,
                           "total_tokens": answer.input_tokens + answer.output_tokens},
-                "metrics": {"generation_seconds": answer.elapsed, "tokens_per_second": answer.output_tokens / max(answer.elapsed, 1e-6)}}
+                "metrics": metrics(answer)}
 
     return app
 
@@ -222,6 +313,10 @@ def launch(namespace):
     old = namespace.get("_boitia_runtime")
     if old:
         old[0].terminate()
+        try:
+            old[0].wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            old[0].kill(); old[0].wait()
         old[1].should_exit = True
         old[2].join(timeout=10)
         if old[2].is_alive():
@@ -232,8 +327,15 @@ def launch(namespace):
     namespace.pop("_boitia_tokenizer", None)
     gc.collect()
     torch.cuda.empty_cache()
-    model, tokenizer, candidate = load_engine(os.environ.get("BOITIA_CACHE", "/kaggle/working/boitia-cache"),
-                                             preferred=os.environ.get("BOITIA_MODEL") or None)
+    cache = os.environ.get("BOITIA_CACHE", "/kaggle/working/boitia-cache")
+    preferred = os.environ.get("BOITIA_MODEL") or None
+    try:
+        model, tokenizer, candidate = load_engine(cache, preferred=preferred)
+    except RuntimeError:
+        if not preferred or preferred == "Qwen/Qwen3-8B":
+            raise
+        print("Candidato explícito falló; recuperando perfil estable.", flush=True)
+        model, tokenizer, candidate = load_engine(cache, preferred="Qwen/Qwen3-8B")
     namespace["_boitia_model"] = model
     namespace["_boitia_tokenizer"] = tokenizer
     html = Path(__file__).with_name("index.html").read_text(encoding="utf-8")

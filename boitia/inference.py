@@ -1,5 +1,7 @@
 """Bounded generation with truthful accounting and adaptive budgets."""
 import time
+import os
+import re
 from dataclasses import dataclass
 from .config import PROFILES
 
@@ -10,15 +12,29 @@ class Result:
     output_tokens: int
     elapsed: float
     finish_reason: str
+    ttft_seconds: float | None = None
+    first_visible_seconds: float | None = None
+
+
+def adaptive_budget(messages, mode, requested=None):
+    """Only shorten obviously brief requests; explicit explanations retain full budget."""
+    ceiling = PROFILES[mode].output
+    limit = ceiling if requested is None else min(ceiling, max(1, requested))
+    query = messages[-1]["content"].strip().casefold()
+    if mode != "deep" and re.fullmatch(r"(hola|buen[oa]s? (días|tardes|noches)|gracias|hello|hi)[.!¡! ]*", query):
+        return min(limit, 64)
+    if mode != 'deep' and len(query) < 600 and re.search(r"(solo|únicamente|exclusivamente) (el entero|un entero|sí o no|el número|un número)[.! ]*$", query):
+        return min(limit, 64)
+    return limit
 
 
 def generate(model, tokenizer, messages, mode='balanced', max_tokens=None, temperature=None, *, on_text=None, cancel=None):
     import torch
     profile = PROFILES[mode]
-    max_new = profile.output if max_tokens is None else min(profile.output, max(1, max_tokens))
+    max_new = adaptive_budget(messages, mode, max_tokens)
     temp = profile.temperature if temperature is None else temperature
     options = {'tokenize':False, 'add_generation_prompt':True}
-    if getattr(model.config, 'model_type', '') == 'qwen3':
+    if getattr(model.config, 'model_type', '') in ('qwen3', 'qwen3_moe'):
         options['enable_thinking'] = False  # concise public answers; never expose internal reasoning traces
     def encode(items):
         text = tokenizer.apply_chat_template(items, **options)
@@ -42,13 +58,20 @@ def generate(model, tokenizer, messages, mode='balanced', max_tokens=None, tempe
                   pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id)
     if temp > 0:
         kwargs.update(temperature=temp, top_p=0.9)
-    if on_text is not None:
-        from transformers import TextStreamer
-        class CallbackStreamer(TextStreamer):
-            def on_finalized_text(self, text, stream_end=False):
-                if text:
+    from transformers import TextStreamer
+    timing = {'token': None, 'visible': None}
+    class CallbackStreamer(TextStreamer):
+        def put(self, value):
+            if not self.next_tokens_are_prompt and timing['token'] is None:
+                timing['token'] = time.perf_counter() - start
+            super().put(value)
+        def on_finalized_text(self, text, stream_end=False):
+            if text:
+                if timing['visible'] is None:
+                    timing['visible'] = time.perf_counter() - start
+                if on_text is not None:
                     on_text(text)
-        kwargs['streamer'] = CallbackStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+    kwargs['streamer'] = CallbackStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
     if cancel is not None:
         from transformers import StoppingCriteria, StoppingCriteriaList
         class CancelCriteria(StoppingCriteria):
@@ -60,17 +83,20 @@ def generate(model, tokenizer, messages, mode='balanced', max_tokens=None, tempe
         output = model.generate(**inputs, **kwargs)
     tokens = output[0,n:]
     answer = tokenizer.decode(tokens, skip_special_tokens=True).strip()
+    if cancel is not None and cancel.is_set():
+        raise RuntimeError("Consulta cancelada")
     if not answer:
         raise RuntimeError('Respuesta neuronal vacía')
-    return Result(answer, n, len(tokens), time.perf_counter()-start, 'length' if len(tokens)>=max_new else 'stop')
+    return Result(answer, n, len(tokens), time.perf_counter()-start, 'length' if len(tokens)>=max_new else 'stop', timing['token'], timing['visible'])
 
 
 def respond(model, tokenizer, messages, mode='balanced', max_tokens=None, temperature=None, *, on_text=None, cancel=None):
-    """Deep mode: a bounded draft followed by a separate verification/revision generation.
-
-    Only the revised answer is returned, with both passes accounted for in metrics.
-    """
-    if mode != 'deep':
+    """Single streaming pass by default; optional legacy two-pass review for comparison."""
+    if mode == 'deep':
+        messages = [dict(m) for m in messages]
+        if messages[0]['role'] == 'system':
+            messages[0]['content'] += '\nVerifica restricciones y cálculos. Entrega una justificación verificable cuando corresponda, respetando el formato solicitado.'
+    if mode != 'deep' or os.environ.get("BOITIA_LEGACY_REVIEW") != "1":
         return generate(model, tokenizer, messages, mode, max_tokens, temperature, on_text=on_text, cancel=cancel)
     total = PROFILES[mode].output if max_tokens is None else max_tokens
     if total < 256:
@@ -83,10 +109,12 @@ def respond(model, tokenizer, messages, mode='balanced', max_tokens=None, temper
         {'role':'user','content':'Revisa la respuesta provisional anterior contra mi solicitud original. Corrige los errores o restricciones incumplidas y entrega únicamente la respuesta final; no describas un razonamiento privado.'}]
     # Do not silently discard the original request when revising a long input.
     if draft.input_tokens + draft.output_tokens + 256 + total > PROFILES[mode].context:
-        final = generate(model, tokenizer, messages, mode, total, temperature, on_text=on_text, cancel=cancel)
+        final = generate(model, tokenizer, messages, mode, total-draft_budget, temperature, on_text=on_text, cancel=cancel)
     else:
-        final = generate(model, tokenizer, review, mode, total, temperature, on_text=on_text, cancel=cancel)
+        final = generate(model, tokenizer, review, mode, total-draft_budget, temperature, on_text=on_text, cancel=cancel)
     final.elapsed += draft.elapsed
+    if final.ttft_seconds is not None: final.ttft_seconds += draft.elapsed
+    if final.first_visible_seconds is not None: final.first_visible_seconds += draft.elapsed
     # OpenAI usage describes both passes, not solely user-visible output.
     final.input_tokens += draft.input_tokens
     final.output_tokens += draft.output_tokens
