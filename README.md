@@ -1,3 +1,11 @@
+# BoitIA — inteligencia personal neuronal
+
+BoitIA es la aplicación neuronal en español de este fork de MiniMind. Incluye una interfaz mobile-first, un servidor de inferencia local, perfiles de GPU, memoria local y un flujo privado y supervisado de aprendizaje QLoRA. Consulta la [guía de arquitectura, lanzamiento de Kaggle en una celda, evaluación y límites](docs/BOITIA.md).
+
+La implementación original de MiniMind y sus atribuciones se conservan a continuación. BoitIA no garantiza disponibilidad permanente ni resultados infalibles.
+
+---
+
 <div align="center">
 
 ![logo](./images/logo.png)

@@ -4,3 +4,9 @@ __pycache__/
 out
 website/
 docs-minimind/
+boitia-cache/
+boitia-evaluation*.json
+boitia-backup*.json
+boitia-lessons*.jsonl
+boitia-adapters/
+.env

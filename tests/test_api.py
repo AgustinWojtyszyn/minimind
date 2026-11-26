@@ -1,0 +1,39 @@
+import asyncio
+import sys
+import types
+import unittest
+from unittest.mock import patch
+import httpx
+from frontend import boitia_server
+from boitia.inference import Result
+
+class FakeModel:
+    config=types.SimpleNamespace(_name_or_path='test')
+    def eval(self): return self
+
+class ApiTests(unittest.TestCase):
+    def test_routes_and_validation(self):
+        fake=types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=lambda:0,OutOfMemoryError=MemoryError,empty_cache=lambda:None))
+        async def run():
+            app=boitia_server.create_app(FakeModel(),None,'BoitIA')
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test') as c:
+                base=boitia_server.BASE
+                self.assertEqual((await c.get(base+'/health')).json()['gpu_count'],0)
+                self.assertEqual((await c.get('/')).status_code,200)
+                body={'model':'boitia','messages':[{'role':'user','content':'Hola'}],'mode':'deep'}
+                self.assertEqual((await c.post(base+'/chat/completions',json=body,headers={'origin':'https://other.example'})).status_code,403)
+                self.assertEqual((await c.post(base+'/chat/completions',json={**body,'mode':'invalid'})).status_code,400)
+                with patch.object(boitia_server,'respond',return_value=Result('Prueba',10,20,2,'length')) as mock:
+                    r=await c.post(base+'/chat/completions',json=body)
+                    self.assertEqual(r.status_code,200);self.assertEqual(r.json()['choices'][0]['finish_reason'],'length');self.assertEqual(r.json()['usage']['total_tokens'],30)
+                    self.assertEqual(mock.call_args.args[3],'deep')
+                r=await c.post(base+'/chat/completions',json={**body,'messages':[{'role':'user','content':'/calcular 0.1+0.2'}]})
+                self.assertIn('3/10',r.json()['choices'][0]['message']['content'])
+                def stream_stub(*args, **kwargs):
+                    kwargs['on_text']('Hola ');kwargs['on_text']('mundo');return Result('Hola mundo',4,2,1,'stop')
+                with patch.object(boitia_server,'respond',side_effect=stream_stub):
+                    r=await c.post(base+'/chat/completions',json={**body,'stream':True})
+                    self.assertIn('text/event-stream',r.headers['content-type']);self.assertIn('Hola ',r.text);self.assertIn('mundo',r.text);self.assertIn('[DONE]',r.text)
+        with patch.dict(sys.modules,{'torch':fake}):asyncio.run(run())
+
+if __name__=='__main__':unittest.main()
