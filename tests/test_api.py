@@ -67,6 +67,24 @@ class ApiTests(unittest.TestCase):
                 with self.assertRaises(ValueError):boitia_server.create_app(FakeModel(),None,'BoitIA')
         with patch.dict(sys.modules,{'torch':fake}):asyncio.run(run())
 
+    def test_cpu_responder_and_serverless_limits(self):
+        async def run():
+            def cpu(*args,**kwargs):
+                self.assertEqual(args[2],256)
+                return Result("Respuesta CPU",2,3,1,"stop")
+            app=boitia_server.create_app(None,None,'BoitIA',responder=cpu,model_info={"model":"CPU","usage_estimated":True},output_limit=256,allow_poll=False)
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test') as c:
+                base=boitia_server.BASE
+                health=(await c.get(base+'/health')).json()
+                self.assertEqual(health['gpu_count'],0);self.assertEqual(health['model'],"CPU");self.assertEqual(health['transport'],"sse")
+                body={"model":"boitia","messages":[{"role":"user","content":"Hola"}],"mode":"deep"}
+                r=await c.post(base+'/chat/completions',json={**body,"transport":"poll","stream":True})
+                self.assertEqual(r.status_code,400)
+                r=await c.post(base+'/chat/completions',json=body)
+                self.assertEqual(r.status_code,200)
+                self.assertTrue(r.json()['metrics']['usage_estimated'])
+        asyncio.run(run())
+
     def test_routes_and_validation(self):
         fake=types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=lambda:0,OutOfMemoryError=MemoryError,empty_cache=lambda:None))
         async def run():

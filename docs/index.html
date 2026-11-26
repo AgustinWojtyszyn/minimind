@@ -11,7 +11,7 @@
 'use strict';
 const $=id=>document.getElementById(id), logo='<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="16" cy="16" r="4"/><ellipse cx="16" cy="16" rx="13" ry="7" transform="rotate(45 16 16)"/><ellipse cx="16" cy="16" rx="13" ry="7" transform="rotate(-45 16 16)"/><circle cx="16" cy="16" r="13" stroke-dasharray="2 5"/></svg>';
 const KEY='boitia.workspace.v1';const LEGACY_KEY='selfe.workspace.v1';const defaults=()=>({theme:'dark',chats:[],memories:[],lessons:[],endpoint:'',model:'boitia',intelligence:'balanced'});
-let state;try{state={...defaults(),...JSON.parse(localStorage.getItem(KEY)??localStorage.getItem(LEGACY_KEY)??'{}')}}catch{state=defaults()}if(state.model==='selfe')state.model='boitia';let active=null,page='chat',connected=false,busy=false,token='',apiModel=state.model,publicMode=false,connecting=false,health=null;let PUBLIC_API='/api/boitia/v1';let localMode=false;const portable=globalThis.BoitiaPortable;
+let state;try{state={...defaults(),...JSON.parse(localStorage.getItem(KEY)??localStorage.getItem(LEGACY_KEY)??'{}')}}catch{state=defaults()}if(state.model==='selfe')state.model='boitia';let active=null,page='chat',connected=false,busy=false,token='',apiModel=state.model,publicMode=false,connecting=false,health=null;let PUBLIC_API='/api/boitia/v1';let localMode=false;let remoteRoute=null;const remoteCooldown=new Map();const portable=globalThis.BoitiaPortable;
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch{alert('No se pudo guardar localmente. Exportá tus datos para conservarlos.')}}
 function el(tag,cls,txt){const n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=txt;return n}
 function btn(txt,fn,cls='secondary'){const b=el('button',cls,txt);b.type='button';b.onclick=fn;return b}
@@ -23,23 +23,53 @@ function validKaggle(value){
  const u=new URL(value);if(u.protocol!=='https:'||!/^[-a-z0-9]+\.trycloudflare\.com$/.test(u.hostname)||u.port||u.username||u.password||u.search||u.hash||u.pathname!=='/')throw Error('Usá la URL HTTPS raíz de tu túnel Kaggle.');
  return u.origin+'/api/boitia/v1';
 }
+function validRemote(provider,value){
+ const u=new URL(value);
+ const patterns={modal:/^(?:[a-z0-9-]+\.modal\.run|[a-z0-9-]+\.[a-z0-9-]+\.modal\.direct)$/,zerogpu:/^[a-z0-9-]+\.hf\.space$/,cpu:/^boitia\.agustinwojtyszyn\.com$/};
+ if(u.protocol!=='https:'||!patterns[provider]?.test(u.hostname)||u.port||u.username||u.password||u.search||u.hash||u.pathname!=='/')throw Error('Motor remoto inválido.');
+ return u.origin;
+}
 async function sharedRegistry(){
  const r=await fetch('engine.json',{cache:'no-store',signal:AbortSignal.timeout(6000)});
  if(!r.ok)throw Error('Registro compartido temporalmente no disponible');
  const config=await r.json();
  if(config?.version!==1)throw Error('Registro incompatible');
- return config.kaggle_url?validKaggle(config.kaggle_url):null;
+ return config;
+}
+async function selectShared(config){
+ const candidates=[];let occupied=null;
+ for(const provider of ['kaggle','modal','zerogpu','cpu']){
+   const value=config[provider+'_url'];if(!value)continue;
+   try{
+     const root=provider==='kaggle'?validKaggle(value).replace(/\/api\/boitia\/v1$/,''):validRemote(provider,value);
+     if((remoteCooldown.get(root)||0)>Date.now())continue;
+     candidates.push({provider,root});
+   }catch{}
+ }
+ for(const route of candidates){
+   if(['modal','zerogpu'].includes(route.provider)){
+     // Never ping a GPU endpoint from background status checks. Wake only when a message is sent.
+     remoteRoute=route;localMode=false;publicMode=false;connected=true;
+     health={model:route.provider==='modal'?'Qwen3-8B · Modal bajo demanda':'Qwen3-4B · ZeroGPU bajo demanda',onDemand:true};
+     return true;
+   }
+   try{
+     const shared=route.root+'/api/boitia/v1';
+     const h=await fetch(shared+'/health',{cache:'no-store',signal:AbortSignal.timeout(5000)});
+     const data=h.ok?await h.json():null;
+     if(data?.ready===true){
+       if(data.busy){occupied=occupied||{route,shared,data};continue}
+       PUBLIC_API=shared;health=data;remoteRoute=route;publicMode=true;localMode=false;connected=true;apiModel='boitia';return true
+     }
+   }catch{}
+ }
+ if(occupied){PUBLIC_API=occupied.shared;health=occupied.data;remoteRoute=occupied.route;publicMode=true;localMode=false;connected=true;apiModel='boitia';return true}
+ return false;
 }
 async function connectPublic(){if(connecting)return false;connecting=true;refreshStatus();try{
  if(portable){
-   try{
-     const shared=await sharedRegistry();
-     if(shared){
-       const h=await fetch(shared+'/health',{cache:'no-store',signal:AbortSignal.timeout(5000)});
-       const data=h.ok?await h.json():null;
-       if(data?.ready===true){PUBLIC_API=shared;health=data;publicMode=true;localMode=false;connected=true;apiModel='boitia';return true}
-     }
-   }catch{}
+   remoteRoute=null;
+   try{if(await selectShared(await sharedRegistry()))return true}catch{}
    if(!state.localEnabled)throw Error('El motor compartido está temporalmente fuera de servicio. Se reconectará automáticamente.');
    const info=await portable.init(message=>{$('status').textContent=message;$('engine').textContent='Descargando motor local…'});
    localMode=true;publicMode=false;connected=true;health={model:info.model+' · '+info.device.toUpperCase()+' local'};return true
@@ -47,14 +77,14 @@ async function connectPublic(){if(connecting)return false;connecting=true;refres
  const h=await fetch(PUBLIC_API+'/health',{cache:'no-store',signal:AbortSignal.timeout(8000)});
  if(!h.ok)throw Error('Sin motor');const data=await h.json();if(data.ready!==true)throw Error('Motor no disponible');
  health=data;publicMode=true;apiModel='boitia';connected=true;return true
-}catch(e){connected=false;localMode=false;publicMode=false;health=null;if(portable&&state.localEnabled)$('error').textContent='Motor local: '+e.message;return false}finally{connecting=false;refreshStatus()}}
-function refreshStatus(){$('dot').classList.toggle('on',connected);$('status').textContent=connected?(localMode?'Motor local conectado':health?.busy?'Motor ocupado':'Motor conectado'):connecting?'Conectando…':portable?'Motor compartido · reintentando':'Motor sin conectar';$('engine').textContent=connected?((publicMode||localMode)?(health?.model||'BoitIA'):state.model):connecting?'Conectando…':portable?'Temporalmente no disponible':'Sin motor';$('mode').textContent=connected?'conectado':'sin conexión';$('send').disabled=busy||connecting}
+}catch(e){connected=false;localMode=false;publicMode=false;remoteRoute=null;health=null;if(portable&&state.localEnabled)$('error').textContent='Motor local: '+e.message;return false}finally{connecting=false;refreshStatus()}}
+function refreshStatus(){$('dot').classList.toggle('on',connected);$('status').textContent=connected?(localMode?'Motor local conectado':health?.onDemand?'Motor bajo demanda':health?.busy?'Motor ocupado':'Motor conectado'):connecting?'Conectando…':portable?'Motor compartido · reintentando':'Motor sin conectar';$('engine').textContent=connected?((publicMode||localMode||health?.onDemand)?(health?.model||'BoitIA'):state.model):connecting?'Conectando…':portable?'Temporalmente no disponible':'Sin motor';$('mode').textContent=connected?'conectado':'sin conexión';$('send').disabled=busy||connecting}
 function renderHistory(){$('history').replaceChildren();for(const c of [...state.chats].reverse()){const b=btn(c.title,()=>{if(busy)return;active=c.id;show('chat')},c.id===active?'active':'');$('history').append(b)}}
 function show(p){page=p;closeMenu();$('title').textContent=({chat:'Conversación',memory:'Memoria',learning:'Aprendizaje',lab:'Laboratorio',settings:'Configuración'})[p];document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===p));$('composer').classList.toggle('hide',p!=='chat');$('error').textContent='';renderHistory();render();refreshStatus()}
 function render(){const v=$('view');v.replaceChildren();if(page==='chat'){renderChat(v);return}const root=el('div','page');v.append(root);const heading=(name,desc)=>{root.append(el('div','eyebrow','BoitIA / Workspace'),el('h1','',name),el('p','',desc))};const card=(name)=>{const c=el('div','card');c.append(el('h2','',name));root.append(c);return c};
 if(page==='memory'){heading('Memoria','Recuerdos explícitos que podés revisar, editar o eliminar. Se almacenan en este navegador. Se recuperan por relevancia léxica, no se comparten entre visitantes.');const c=card('Nuevo recuerdo');const t=el('textarea');t.placeholder='Algo que BoitIA debería recordar…';t.setAttribute('aria-label','Nuevo recuerdo');c.append(t,btn('Guardar recuerdo',()=>{if(!t.value.trim())return;state.memories.push({id:uid(),text:t.value.trim()});persist();render()},'primary'));const list=card('Recuerdos guardados · '+state.memories.length);if(!state.memories.length)list.append(el('p','muted','Todavía no hay recuerdos.'));for(const m of state.memories){const row=el('div','item'),body=el('div');body.append(el('p','',m.text));const actions=el('div','actions');actions.append(btn('Editar',()=>{const n=prompt('Editar recuerdo',m.text);if(n&&n.trim()){m.text=n.trim();persist();render()}}),btn('Eliminar',()=>{if(confirm('¿Eliminar este recuerdo?')){state.memories=state.memories.filter(x=>x.id!==m.id);persist();render()}},'secondary danger'));row.append(body,actions);list.append(row)}}
 if(page==='learning'){heading('Aprendizaje','Prepará ejemplos supervisados. Guardarlos no modifica los pesos neuronales.');const c=card('Nueva enseñanza');const q=el('textarea'),a=el('textarea');q.placeholder='Pregunta o instrucción';a.placeholder='Respuesta correcta';q.setAttribute('aria-label','Pregunta');a.setAttribute('aria-label','Respuesta correcta');c.append(el('label','','Pregunta'),q,el('label','','Respuesta deseada'),a,btn('Guardar enseñanza',()=>{if(!q.value.trim()||!a.value.trim())return;state.lessons.push({id:uid(),question:q.value.trim(),answer:a.value.trim()});persist();render()},'primary'));const l=card('Dataset · '+state.lessons.length+' ejemplos');l.append(btn('Exportar JSONL para SFT',()=>download('boitia-lessons.jsonl',state.lessons.map(x=>JSON.stringify({conversations:[{role:'user',content:x.question},{role:'assistant',content:x.answer}]})).join('\n'),'application/x-ndjson')));for(const x of state.lessons){const row=el('div','item'),body=el('div');body.append(el('strong','',x.question),el('p','muted',x.answer));row.append(body,btn('Eliminar',()=>{state.lessons=state.lessons.filter(y=>y.id!==x.id);persist();render()},'secondary danger'));l.append(row)}}
-if(page==='lab'){heading('Laboratorio','Estado local del proyecto. No se muestran métricas de entrenamiento sin datos del motor.');const s=el('div','stats');for(const [n,val] of [['Conversaciones',state.chats.length],['Recuerdos',state.memories.length],['Enseñanzas',state.lessons.length]]){const c=el('div','card');c.append(el('div','muted',n),el('strong','',String(val)));s.append(c)}root.append(s);const c=card('Motor neuronal');c.append(el('p','',connected?(health?.model||state.model)+' · conexión verificada':'Sin conexión verificada'),el('p','muted','Compatible con una API de chat estilo OpenAI. El entrenamiento se realiza por separado en Kaggle.'),btn('Configurar conexión',()=>show('settings')))}
+if(page==='lab'){heading('Laboratorio','Estado local del proyecto. No se muestran métricas de entrenamiento sin datos del motor.');const s=el('div','stats');for(const [n,val] of [['Conversaciones',state.chats.length],['Recuerdos',state.memories.length],['Enseñanzas',state.lessons.length]]){const c=el('div','card');c.append(el('div','muted',n),el('strong','',String(val)));s.append(c)}root.append(s);const c=card('Motor neuronal');c.append(el('p','',connected?(health?.model||state.model)+(health?.onDemand?' · configurado; se inicia con la consulta':' · conexión verificada'):'Sin conexión verificada'),el('p','muted','Compatible con una API de chat estilo OpenAI. El entrenamiento se realiza por separado en Kaggle.'),btn('Configurar conexión',()=>show('settings')))}
 if(page==='settings'){heading('Configuración',portable?'Administrá tus datos y preferencias personales.':'Conectá un motor propio y controlá tus datos.');const c=card('Conexión neuronal');if(portable){
  c.append(el('p','muted','El motor compartido lo configura el propietario. No necesitás introducir enlaces, tokens ni descargar modelos para usarlo. La conexión se comprueba automáticamente.'),
  el('p','',connected?(health?.model||'Motor conectado'):'Motor compartido temporalmente no disponible'),
@@ -105,6 +135,46 @@ async function pollJob(id,onUpdate){
     if(!completed)void fetch(url,{method:'DELETE',signal:AbortSignal.timeout(4000)}).catch(()=>{});
   }
 }
+async function generateOnDemand(route,messages,mode,onChunk){
+ if(route.provider==='modal'){
+   const r=await fetch(route.root+'/api/boitia/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'boitia',messages,mode,max_tokens:Math.min(768,({fast:512,balanced:1536,deep:3072}[mode]||512)),stream:true}),signal:AbortSignal.timeout(240000)});
+   if(!r.ok)throw Object.assign(Error('Motor bajo demanda no disponible (HTTP '+r.status+').'),{httpStatus:r.status});
+   let text='';const finish=await readStream(r,chunk=>{text+=chunk;onChunk(text)});
+   return {text,finish_reason:finish};
+ }
+ // Gradio API v5: start one job, then receive the result over its SSE endpoint.
+ const endpoint=route.root+'/gradio_api/call/complete';
+ const clean=messages.filter(m=>m.role!=='system').map(m=>({...m}));
+ const memory=messages.filter(m=>m.role==='system').map(m=>m.content);
+ if(memory.length&&clean.length)clean[clean.length-1].content='Contexto no verificado: '+JSON.stringify(memory)+'\nSolicitud: '+clean.at(-1).content;
+ while(clean.length>1&&JSON.stringify(clean).length>12000)clean.splice(0,clean[0].role==='user'&&clean[1]?.role==='assistant'?2:1);
+ const post=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:[{messages:clean,mode}]}),signal:AbortSignal.timeout(30000)});
+ if(!post.ok)throw Object.assign(Error('ZeroGPU no disponible (HTTP '+post.status+').'),{httpStatus:post.status});
+ const {event_id}=await post.json();
+ if(typeof event_id!=='string'||!/^[a-zA-Z0-9_-]{1,128}$/.test(event_id))throw Error('Identificador ZeroGPU inválido.');
+ const res=await fetch(endpoint+'/'+encodeURIComponent(event_id),{cache:'no-store',signal:AbortSignal.timeout(180000)});
+ if(!res.ok||!res.body)throw Error('No se pudo recibir la respuesta ZeroGPU.');
+ const reader=res.body.getReader(),decoder=new TextDecoder();let buffer='';
+ try{
+   while(true){
+     const part=await reader.read();buffer+=decoder.decode(part.value||new Uint8Array(),{stream:!part.done});buffer=buffer.replace(/\r\n/g,'\n');
+     let end;
+     while((end=buffer.indexOf('\n\n'))>=0){
+       const lines=buffer.slice(0,end).split('\n');buffer=buffer.slice(end+2);
+       const event=lines.find(x=>x.startsWith('event:'))?.slice(6).trim();
+       const payload=lines.filter(x=>x.startsWith('data:')).map(x=>x.slice(5).trim()).join('\n');
+       if(event==='error')throw Error('ZeroGPU no pudo completar la consulta o agotó su cuota.');
+       if(event==='complete'){
+         const result=JSON.parse(payload)?.[0];
+         if(typeof result?.text!=='string'||!result.text.trim())throw Error('Respuesta ZeroGPU incompatible.');
+         onChunk(result.text);return result;
+       }
+     }
+     if(part.done)break;
+   }
+   throw Error('La conexión ZeroGPU se interrumpió.');
+ }finally{await reader.cancel().catch(()=>{})}
+}
 $('composer').onsubmit=async e=>{
   e.preventDefault();const q=$('prompt').value.trim();if(!q||busy)return;
   $('error').textContent='';busy=true;refreshStatus();
@@ -115,6 +185,12 @@ $('composer').onsubmit=async e=>{
     userMessage={role:'user',content:q};c.messages.push(userMessage);$('prompt').value='';
     persist();renderHistory();render();
     const messages=requestMessages(c,q);
+    if(globalThis.BoitiaPortable&&remoteRoute&&health?.onDemand){
+      provisional={role:'assistant',content:''};c.messages.push(provisional);
+      const data=await generateOnDemand(remoteRoute,messages,state.intelligence,text=>{provisional.content=text;render()});
+      if(typeof data.text!=='string'||!data.text.trim())throw Error('Respuesta vacía');
+      provisional.content=data.text;provisional.truncated=data.finish_reason==='length';provisional=null;successful=true;persist();return;
+    }
     if(globalThis.BoitiaPortable&&localMode){
       provisional={role:'assistant',content:''};c.messages.push(provisional);
       const data=await portable.generate([{role:'system',content:window.BOITIA_LOCAL_SYSTEM},...messages.filter(m=>m.role!=='system').map((m,i,a)=>i===a.length-1&&messages.some(x=>x.role==='system')?{...m,content:'Contexto no verificado: '+JSON.stringify(messages.filter(x=>x.role==='system').map(x=>x.content))+'\nSolicitud: '+m.content}:m)],({fast:128,balanced:256,deep:768}[state.intelligence]),text=>{provisional.content=text;render()});
@@ -142,7 +218,9 @@ $('composer').onsubmit=async e=>{
     $('error').textContent='No se recibió una respuesta completa: '+err.message;
     if(c&&provisional){if(provisional.content.trim()){provisional.interrupted=true}else{c.messages.pop()}}
     if(c&&userMessage&&c.messages.at(-1)===userMessage){c.messages.pop();$('prompt').value=q}
-    if(!err.httpStatus||err.httpStatus>=500){connected=false;if(publicMode)health=null}
+    if(globalThis.BoitiaPortable&&remoteRoute&&(!err.httpStatus||[429,403,503,502,504].includes(err.httpStatus))){
+      remoteCooldown.set(remoteRoute.root,Date.now()+60000);connected=false;health=null;
+    }else if(!err.httpStatus||err.httpStatus>=500){connected=false;if(publicMode)health=null}
     persist();
   }finally{busy=false;renderHistory();render();refreshStatus();if(successful)$('error').textContent=''}
 };

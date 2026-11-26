@@ -1,4 +1,4 @@
-"""Owner-only publication of a verified Kaggle URL. No secrets in the public manifest."""
+"""Owner-only publication of verified shared engine URLs. No credentials in the public manifest."""
 import base64
 import datetime
 import json
@@ -16,14 +16,32 @@ def validate_tunnel(url):
     return url
 
 
+PROVIDER_FIELDS = {"kaggle": "kaggle_url", "modal": "modal_url",
+                   "zerogpu": "zerogpu_url", "cpu": "cpu_url"}
+
+
+def validate_provider_url(provider, url):
+    if provider == "kaggle":
+        return validate_tunnel(url)
+    patterns = {
+        "modal": r"https://[a-z0-9-]+\.modal\.run|https://[a-z0-9-]+\.[a-z0-9-]+\.modal\.direct",
+        "zerogpu": r"https://[a-z0-9-]+\.hf\.space",
+        "cpu": r"https://boitia\.agustinwojtyszyn\.com",
+    }
+    if provider not in patterns or not isinstance(url,str) or not re.fullmatch(patterns[provider],url):
+        raise ValueError("URL de motor remoto inválida.")
+    return url
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 
-def publish_engine(url, token, *, opener=None):
+def publish_engine(url, token, *, provider="kaggle", opener=None):
     """Only update the fixed public registry; never print credentials or HTTP bodies."""
-    url = validate_tunnel(url)
+    url = validate_provider_url(provider, url)
+    field = PROVIDER_FIELDS[provider]
     if not token:
         raise ValueError("Falta el secreto del propietario.")
     opener = opener or urllib.request.build_opener(NoRedirect())
@@ -43,11 +61,17 @@ def publish_engine(url, token, *, opener=None):
             document = json.loads(base64.b64decode(current["content"]))
             if document.get("version") != 1:
                 raise ValueError("Versión de registro desconocida.")
-            if document.get("kaggle_url") == url:
+            if document.get(field) == url:
                 return False
             # Only publish the URL and timestamp; never infer credentials from the environment.
-            document = {"version": 1, "kaggle_url": url,
-                        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+            retained = {}
+            for kind,key in PROVIDER_FIELDS.items():
+                if key in document:
+                    value = document[key]
+                    retained[key] = None if value is None else validate_provider_url(kind, value)
+            retained[field] = url
+            document = {"version":1, **retained,
+                        "updated_at":datetime.datetime.now(datetime.timezone.utc).isoformat()}
             content = base64.b64encode((json.dumps(document, indent=2) + "\n").encode()).decode()
             request("PUT", payload={"message": "Register active BoitIA engine", "branch": "master",
                                      "sha": current["sha"], "content": content})

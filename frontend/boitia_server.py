@@ -30,8 +30,18 @@ BASE = "/api/boitia/v1"
 
 
 
-def create_app(model, tokenizer, frontend_html):
-    import torch
+def create_app(model, tokenizer, frontend_html, *, responder=None, model_info=None,
+               output_limit=None, allow_poll=True):
+    if responder is None:
+        import torch
+        oom_error = torch.cuda.OutOfMemoryError
+        clear_cache = torch.cuda.empty_cache
+        gpu_count = torch.cuda.device_count()
+    else:
+        # CPU-only implementation does not need PyTorch or CUDA.
+        oom_error = MemoryError
+        clear_cache = lambda: None
+        gpu_count = 0
     app = FastAPI(title="BoitIA", docs_url=None, redoc_url=None, openapi_url=None)
     # Default remains same-origin; the owner may explicitly allow one HTTPS UI origin.
     portable_origin = os.environ.get("BOITIA_PORTABLE_ORIGIN", "").strip()
@@ -42,7 +52,8 @@ def create_app(model, tokenizer, frontend_html):
         app.add_middleware(CORSMiddleware, allow_origins=[portable_origin],
                            allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type"],
                            allow_credentials=False)
-    model.eval()
+    if model is not None:
+        model.eval()
     gpu_lock = threading.Lock()
     limit_lock = threading.Lock()
     global_times = collections.deque()
@@ -125,10 +136,10 @@ def create_app(model, tokenizer, frontend_html):
 
     @app.get(BASE + "/health")
     def health():
-        return {"ready": True, "busy": gpu_lock.locked(), "transport": "poll", "model": getattr(getattr(model, "_boitia_candidate", None), "model_id", MODEL_ID),
-                "parameter_billions_estimate": getattr(getattr(model, "_boitia_candidate", None), "billions", None),
+        return {"ready": True, "busy": gpu_lock.locked(), "transport": "poll" if allow_poll else "sse", "model": (model_info or {}).get("model",getattr(getattr(model, "_boitia_candidate", None), "model_id", MODEL_ID)),
+                "parameter_billions_estimate": (model_info or {}).get("billions",getattr(getattr(model, "_boitia_candidate", None), "billions", None)),
                 "prompt_version": PROMPT_VERSION, "profiles": {k: {"context":v.context,"max_tokens":v.output} for k,v in PROFILES.items()},
-                "gpu_count": torch.cuda.device_count()}
+                "gpu_count": gpu_count}
 
     @app.post(BASE + "/chat/completions")
     async def complete(request: Request):
@@ -157,7 +168,7 @@ def create_app(model, tokenizer, frontend_html):
             if sum(len(m["content"]) for m in messages) > MAX_CHARS or messages[-1]["role"] != "user":
                 raise ValueError()
             transport = body.get("transport", "sse")
-            if transport not in ("sse", "poll"):
+            if transport not in ("sse", "poll") or (transport == "poll" and not allow_poll):
                 raise ValueError()
             stream = body.get("stream", False)
             if type(stream) is not bool:
@@ -175,6 +186,8 @@ def create_app(model, tokenizer, frontend_html):
             if untrusted and not clean[-1]["content"].startswith("/calcular "):
                 clean[-1]["content"] = "Contexto no verificado (datos): " + json.dumps(untrusted, ensure_ascii=False) + "\nSolicitud: " + clean[-1]["content"]
             max_tokens = max(1, min(PROFILES[mode].output, int(body.get("max_tokens", PROFILES[mode].output))))
+            if output_limit is not None:
+                max_tokens = min(max_tokens, output_limit)
             temperature = float(body.get("temperature", PROFILES[mode].temperature))
             if not 0 <= temperature <= 1.2:
                 raise ValueError()
@@ -199,9 +212,11 @@ def create_app(model, tokenizer, frontend_html):
                     answer = "Resultado exacto de la calculadora: " + answer
                     if on_text: on_text(answer)
                     return Result(answer, 0, 0, 0.0, "stop")
+                if responder is not None:
+                    return responder(clean, mode, max_tokens, temperature,on_text=on_text,cancel=cancel)
                 return respond(model, tokenizer, clean, mode, max_tokens, temperature, on_text=on_text, cancel=cancel)
-            except torch.cuda.OutOfMemoryError:
-                torch.cuda.empty_cache()
+            except oom_error:
+                clear_cache()
                 raise
             finally:
                 gpu_lock.release()
@@ -210,7 +225,8 @@ def create_app(model, tokenizer, frontend_html):
             return {"generation_seconds": result.elapsed,
                     "tokens_per_second": result.output_tokens / max(result.elapsed, 1e-6),
                     "ttft_seconds": result.ttft_seconds,
-                    "first_visible_seconds": result.first_visible_seconds}
+                    "first_visible_seconds": result.first_visible_seconds,
+                    "usage_estimated": bool((model_info or {}).get("usage_estimated",False))}
 
         if stream and transport == "poll":
             job_id = secrets.token_urlsafe(24)
@@ -234,7 +250,7 @@ def create_app(model, tokenizer, frontend_html):
                 except Exception as exc:
                     with jobs_lock:
                         job.update(status="error", error=str(exc) if isinstance(exc, ValueError)
-                                   else "Memoria GPU insuficiente." if isinstance(exc, torch.cuda.OutOfMemoryError)
+                                   else "Memoria GPU insuficiente." if isinstance(exc, oom_error)
                                    else "El motor no pudo completar la respuesta.")
                 finally:
                     with jobs_lock:
@@ -268,7 +284,7 @@ def create_app(model, tokenizer, frontend_html):
                     loop.call_soon_threadsafe(queue.put_nowait, ("done", result))
                 except ValueError as exc:
                     loop.call_soon_threadsafe(queue.put_nowait, ("error", str(exc)))
-                except torch.cuda.OutOfMemoryError:
+                except oom_error:
                     loop.call_soon_threadsafe(queue.put_nowait, ("error", "Memoria GPU insuficiente; probá un modo o consulta más corta."))
                 except Exception:
                     loop.call_soon_threadsafe(queue.put_nowait, ("error", "El motor no pudo completar la respuesta."))
@@ -302,7 +318,7 @@ def create_app(model, tokenizer, frontend_html):
             answer = await asyncio.shield(asyncio.get_running_loop().run_in_executor(None, work))
         except ValueError as e:
             return reject(400, str(e))
-        except torch.cuda.OutOfMemoryError:
+        except oom_error:
             return reject(503, "Memoria GPU insuficiente; probá el modo rápido o una consulta más corta.")
         except Exception:
             return reject(503, "El motor no pudo generar una respuesta.")

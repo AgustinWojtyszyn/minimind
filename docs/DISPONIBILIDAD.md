@@ -9,8 +9,9 @@ La interfaz usa el mismo esquema de almacenamiento, memoria, aprendizaje explíc
 ## Motor híbrido
 
 1. Todos los visitantes leen el mismo registro público `engine.json` y seleccionan automáticamente el túnel del propietario si responde listo. No ingresan URLs ni tokens. Se reintenta incluso si el registro aún no tiene un motor. Si el motor está ocupado, se informa esa condición.
-2. Si no está disponible y el usuario autorizó la descarga de pesos local, la aplicación usa su dispositivo: Qwen2.5-1.5B-Instruct ONNX Q4 con WebGPU; si no es compatible, Qwen2.5-0.5B-Instruct ONNX Q4 con WASM/CPU. Un worker gestiona la generación para no bloquear la interfaz. El modelo local es inferior a 8B y puede ser lento, requerir almacenamiento y consumir batería. No se promete compatibilidad específica con todos los teléfonos.
-3. El prototipo ZeroGPU se prepara como Space Gradio separado, pendiente de despliegue y pruebas reales antes de incorporarlo al selector automático. Usa Qwen3-4B, FP16 y una reserva GPU bajo demanda limitada. No se adquieren créditos ni suscripciones.
+2. Si Kaggle no responde o está ocupado y hay otros motores registrados por el propietario, la página elige Modal, ZeroGPU y CPU en ese orden. Modal y ZeroGPU no reciben sondeos periódicos: se inician al enviar una consulta. Si falla una solicitud posiblemente aceptada, no se reenvía automáticamente y se aplica un enfriamiento temporal del motor para el siguiente intento.
+3. Si no hay ningún motor remoto disponible y el usuario autorizó la descarga de pesos local, la aplicación usa su dispositivo: Qwen2.5-1.5B-Instruct ONNX Q4 con WebGPU; si no es compatible, Qwen2.5-0.5B-Instruct ONNX Q4 con WASM/CPU. Un worker gestiona la generación para no bloquear la interfaz. El modelo local es inferior a 8B y puede ser lento, requerir almacenamiento y consumir batería. No se promete compatibilidad específica con todos los teléfonos.
+4. Los endpoints de Modal, ZeroGPU y CPU no se anuncian en el registro hasta que el propietario los despliegue y aprueben una consulta y CORS reales. No se adquieren créditos ni suscripciones automáticamente.
 
 No se usan API comerciales en sustitución de los pesos locales. No hay un servidor GPU 24/7 ilimitado. Las descargas de pesos y dependencias necesitan Internet inicialmente; la caché del navegador puede ser eliminada y no garantiza operación completamente fuera de línea. La aplicación no reenvía automáticamente una consulta cuyo POST pudo haber sido aceptado: conserva el texto parcial o el prompt para reintento consciente. La recuperación puede elegir otro motor en la siguiente solicitud.
 
@@ -44,18 +45,38 @@ El servidor valida conexión pública y CORS con el origen permanente antes de p
 
 El registro tiene como valor inicial `null` para no inventar un túnel activo. No se habilita CORS general: sólo el origen HTTPS `https://agustinwojtyszyn.github.io` cuando el propietario autoriza el registro. El servidor de Kaggle conserva el modo del mismo origen si se inicia sin secreto. El inicio con secreto no falla si GitHub rechaza la publicación: se informa el problema sin mostrar la credencial.
 
-## ZeroGPU — creación opcional en una cuenta elegible
+## Activar ZeroGPU primero (sin método de pago si la cuenta es elegible)
 
-Los requisitos actuales de Hugging Face permiten hasta dos Spaces ZeroGPU en cuentas personales gratuitas elegibles (correo verificado y más de 30 días de antigüedad), con cuota de GPU por usuario. See [ZeroGPU](https://huggingface.co/docs/hub/spaces-zerogpu). No crear un Space de CPU/Docker pago: [reglas de creación](https://huggingface.co/docs/hub/spaces-overview).
+Hugging Face permite hasta dos Spaces ZeroGPU en cuentas personales gratuitas elegibles (correo verificado y más de 30 días de antigüedad). La cuota anónima publicada es de 2 minutos de GPU al día; la del usuario gratuito autenticado, 5 minutos. No se eluden límites ni se garantiza capacidad. [ZeroGPU](https://huggingface.co/docs/hub/spaces-zerogpu).
 
-El prototipo está en `deploy/zerogpu`, reutiliza el prompt y la generación de BoitIA a través de Gradio. Para desplegar, el propietario debe tener un token de Hugging Face con permisos de escritura, guardado como secreto `HF_TOKEN` en el entorno privado. Nunca pegarlo en Git, frontend, conversación ni notebook público. El siguiente comando exige confirmación explícita mediante `--apply`, sólo solicita ZeroGPU (identificador histórico `zero-a10g`) y no actualiza hardware ni crea recursos pagos. Si el nombre ya existe, falla sin sobrescribirlo.
+El motor en `deploy/zerogpu` reutiliza el código BoitIA con Qwen3-4B. En Kaggle **creá un notebook CPU separado** para no detener el motor actual. El propietario necesita un token de Hugging Face con permisos de escritura para crear su Space; guardalo como secreto `HF_TOKEN` y habilitá también el secreto existente `BOITIA_GITHUB_TOKEN` sólo en el notebook privado. Nunca pegar secretos en una celda o conversación.
 
-```bash
-python scripts/deploy_zerogpu.py
-python scripts/deploy_zerogpu.py --apply
+```python
+from pathlib import Path
+import subprocess, sys
+repo = Path("/kaggle/working/boitia")
+if not repo.exists():
+    subprocess.run(["git","clone","--branch","master","https://github.com/AgustinWojtyszyn/minimind.git",str(repo)],check=True)
+else:
+    subprocess.run(["git","-C",str(repo),"pull","--ff-only","origin","master"],check=True)
+subprocess.run([sys.executable,"-u",str(repo/"scripts/kaggle_zerogpu.py")],cwd=repo,check=True)
 ```
 
-El Space creado es público, sólo contiene código público y pesos abiertos; no sube conversaciones, secretos, datos ni adaptadores. La cola y cuotas oficiales aplican; no se eluden. Antes de conectar al frontend, probar la carga real y la API `/complete`. Si la cuenta no es elegible, detener el despliegue sin cambiar a un plan pago.
+El script crea únicamente ZeroGPU, sube el código público, espera a que termine la compilación, verifica una consulta sin credenciales de visitante y CORS para GitHub Pages, y registra la URL. No cambia la visibilidad ni el hardware de un Space existente; si ya existe, falla de forma segura. Si la cuenta no es elegible, la prueba falla o la cuota está agotada, no se publica una URL no probada. Tras el despliegue, el proceso Kaggle CPU puede detenerse.
+
+## Modal y CPU Always Free (opcionales)
+
+- [Modal](https://modal.com/pricing): Starter incluye crédito de cómputo; requiere método de pago y puede cobrar al superar créditos. **No desplegar antes de confirmar en el panel límites efectivos de gasto neto USD 0 y presupuesto dentro de créditos.** Ver [deploy/modal/README.md](../deploy/modal/README.md). El modelo Qwen3-8B NF4 utiliza una T4, una instancia máxima y escala a cero. El arranque y la ventana de inactividad también consumen recursos.
+- [Oracle Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm): la pequeña VM CPU sólo se provisionará si la cuenta tiene capacidad elegible y no habilita recursos pagos. El Dockerfile en `deploy/oracle` ejecuta llama.cpp con Qwen2.5-1.5B Q4, con uso de tokens estimado. Requiere HTTPS en el dominio del propietario `boitia.agustinwojtyszyn.com` y configuración DNS correspondiente; no está desplegado.
+
+Para registrar cualquier motor ya desplegado, el script propietario `scripts/register_remote.py` verifica antes de modificar el registro, usa el secreto `BOITIA_GITHUB_TOKEN` y sólo acepta dominios de proveedores permitidos. Por defecto es simulación sin consultar ni modificar recursos. Ejemplos, tras verificar los límites:
+
+```bash
+python scripts/register_remote.py --provider modal --url https://TU-ENDPOINT.modal.run --apply --confirmed-zero-budget
+python scripts/register_remote.py --provider cpu --url https://boitia.agustinwojtyszyn.com --apply
+```
+
+Se conserva la URL de Kaggle y las demás rutas al registrar una nueva. Si hay que retirar un motor, el titular puede poner su campo a `null` en `docs/engine.json` y detenerlo en el proveedor. Nunca registrar secretos ni APIs de modelos pagas. La página compartida no solicita descargas o tokens a los visitantes. Los recuerdos relevantes se envían sólo al motor seleccionado; los datos personales no se incluyen en el registro. No existe garantía de inferencia ilimitada gratuita.
 
 ## Pruebas
 
@@ -63,8 +84,9 @@ El Space creado es público, sólo contiene código público y pesos abiertos; n
 python -m unittest discover -s tests -v
 node tests/ui_transport.test.cjs
 node tests/ui_portable.test.cjs
+node tests/ui_ondemand.test.cjs
 python scripts/build_portable.py
 python -m compileall -q boitia frontend deploy
 ```
 
-Las pruebas locales cubren CORS opt-in, publicación de registro sin secretos, conexión automática de un visitante nuevo, rotación de túnel, respaldo local por consentimiento, validación de URL, persistencia existente y transporte. La descarga/ejecución neuronal real, compatibilidad del móvil, activación de Pages y funcionamiento de ZeroGPU requieren validación externa.
+Las pruebas locales cubren CORS opt-in, publicación de registro sin secretos, conexión automática de un visitante nuevo, rotación de túnel, respaldo local por consentimiento, validación de URL, persistencia existente y transporte. La inferencia real en Modal, ZeroGPU y Oracle, sus presupuestos y compatibilidad externa requieren validación antes de registrar. GitHub Pages ya está configurado por el propietario; los motores nuevos no se dieron de alta desde el entorno de desarrollo.

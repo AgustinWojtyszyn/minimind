@@ -4,17 +4,23 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
+import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT))
 
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--name",default="boitia-zerogpu")
     parser.add_argument("--apply",action="store_true")
+    parser.add_argument("--publish",action="store_true",help="Verify and register the public engine after build.")
     args=parser.parse_args()
     if not args.apply:
         print("Dry run: create/use personal ZeroGPU space; no paid hardware. Use --apply to deploy.")
         return
+    if args.publish and not os.environ.get("BOITIA_GITHUB_TOKEN"):
+        raise SystemExit("Falta BOITIA_GITHUB_TOKEN para publicar después de la comprobación.")
     token=os.environ.get("HF_TOKEN")
     if not token:
         raise SystemExit("Definí HF_TOKEN como secreto del entorno; no lo pegues en el repositorio.")
@@ -41,7 +47,28 @@ def main():
             shutil.copyfile(ROOT/"boitia"/name,target/"boitia"/name)
         api.upload_folder(folder_path=target,repo_id=repo_id,repo_type="space",
                           commit_message="BoitIA ZeroGPU experimental")
-    print(f"https://huggingface.co/spaces/{repo_id}")
+    print(f"https://huggingface.co/spaces/{repo_id}",flush=True)
+    if args.publish:
+        from boitia.registry import publish_engine,validate_provider_url
+        from boitia.remote_verify import verify_remote
+        deadline=time.monotonic()+1200
+        while time.monotonic()<deadline:
+            info=api.space_info(repo_id)
+            runtime=api.get_space_runtime(repo_id)
+            raw_stage=getattr(runtime,"stage","")
+            stage=str(getattr(raw_stage,"value",raw_stage))
+            if stage in ("BUILD_ERROR","RUNTIME_ERROR","CONFIG_ERROR","PAUSED","NO_APP_FILE"):
+                raise SystemExit("El Space no completó el build: "+stage)
+            if stage=="RUNNING" and getattr(info,"host",None):
+                if getattr(runtime,"hardware",None)!="zero-a10g" or getattr(runtime,"requested_hardware",None) not in (None,"zero-a10g"):
+                    raise SystemExit("ZeroGPU no confirmado; no se registró.")
+                url=validate_provider_url("zerogpu",info.host.rstrip("/"))
+                verify_remote("zerogpu",url)
+                publish_engine(url,os.environ["BOITIA_GITHUB_TOKEN"],provider="zerogpu")
+                print("ZeroGPU verificado y registrado para todos los visitantes.",flush=True)
+                return
+            print("Estado ZeroGPU:",stage,flush=True);time.sleep(15)
+        raise SystemExit("El Space aún no está listo; no se registró.")
 
 if __name__=="__main__":
     main()
