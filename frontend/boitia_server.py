@@ -158,23 +158,49 @@ def create_app(model, tokenizer, frontend_html):
 def launch(namespace):
     """Run once in Kaggle after loading the existing model. No retraining."""
     import uvicorn
-    from transformers import AutoTokenizer
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    model = next((namespace.get(k) for k in ("engine", "model", "loaded_model")
-                  if callable(getattr(namespace.get(k), "generate", None))), None)
+    source = "Qwen/Qwen2.5-1.5B-Instruct"
+    if not torch.cuda.is_available():
+        raise RuntimeError("Activá la GPU T4 en Kaggle y volvé a ejecutar esta celda.")
+    candidates = []
+    for key in ("engine", "candidate_model", "model", "loaded_model", "_boitia_model"):
+        obj = namespace.get(key)
+        if isinstance(obj, torch.nn.Module) and callable(getattr(obj, "generate", None)):
+            candidates.append(obj)
+    for obj in list(namespace.values()):
+        if isinstance(obj, torch.nn.Module) and callable(getattr(obj, "generate", None)):
+            if all(obj is not other for other in candidates):
+                candidates.append(obj)
+    model = next((obj for obj in candidates
+                  if sum(p.numel() for p in obj.parameters()) == 1543714304
+                  and getattr(obj.config, "model_type", "") == "qwen2"), None)
     if model is None:
-        raise RuntimeError("No se encontró el modelo cargado. Ejecutá primero la celda de carga.")
-    tokenizer = next((namespace.get(k) for k in ("tokenizer", "engine_tokenizer", "tok")
-                      if callable(getattr(namespace.get(k), "apply_chat_template", None))), None)
-    if tokenizer is None:
-        source = getattr(model.config, "_name_or_path", "")
-        if not source:
-            raise RuntimeError("No se encontró el tokenizer del modelo.")
-        tokenizer = AutoTokenizer.from_pretrained(source)
+        print("BoitIA: recuperando Qwen 1.5B desde la caché o Hugging Face...", flush=True)
+        tokenizer = AutoTokenizer.from_pretrained(source, trust_remote_code=False)
+        model = AutoModelForCausalLM.from_pretrained(
+            source, torch_dtype=torch.float16, trust_remote_code=False
+        ).to("cuda").eval()
+    else:
+        print("BoitIA: modelo existente encontrado.", flush=True)
+        if next(model.parameters()).device.type != "cuda":
+            model = model.to("cuda")
+        model.eval()
+        tokenizer = next((namespace.get(k) for k in ("candidate_tokenizer", "tok", "tokenizer", "engine_tokenizer", "_boitia_tokenizer")
+                          if callable(getattr(namespace.get(k), "apply_chat_template", None))
+                          and getattr(namespace.get(k), "name_or_path", "").rstrip("/").endswith("Qwen2.5-1.5B-Instruct")), None)
+        if tokenizer is None:
+            tokenizer = AutoTokenizer.from_pretrained(source, trust_remote_code=False)
+    namespace["_boitia_model"] = model
+    namespace["_boitia_tokenizer"] = tokenizer
+    print("BoitIA: motor listo en", next(model.parameters()).device, flush=True)
+    print("BoitIA: descargando interfaz actualizada...", flush=True)
     with urllib.request.urlopen(FRONTEND_URL + "?v=" + str(time.time_ns()), timeout=30) as response:
         html = response.read().decode("utf-8")
     if "BoitIA" not in html or BASE not in html:
         raise RuntimeError("No se encontró la interfaz actualizada de BoitIA.")
+    print("BoitIA: preparando Cloudflare...", flush=True)
     executable = shutil.which("cloudflared")
     if not executable:
         for root in (pathlib.Path("/kaggle/working"), pathlib.Path("/tmp")):
@@ -208,6 +234,7 @@ def launch(namespace):
     if not server.started:
         server.should_exit = True
         raise RuntimeError("No se pudo iniciar el servidor.")
+    print("BoitIA: iniciando túnel público...", flush=True)
     process = subprocess.Popen([executable, "tunnel", "--url", f"http://127.0.0.1:{port}", "--no-autoupdate"],
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     namespace["_boitia_runtime"] = (process, server, thread)
@@ -230,7 +257,7 @@ def launch(namespace):
             match = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
             if match:
                 url = match.group(0)
-                print("BoitIA — interfaz pública:", url)
+                print("BoitIA — interfaz pública:", url, flush=True)
                 print("Conexión automática; no se requiere token. Kaggle debe seguir activo.")
                 return url
         raise RuntimeError("Cloudflare no entregó un enlace público.")
