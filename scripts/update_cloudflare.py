@@ -11,10 +11,16 @@ sys.path.insert(0,str(ROOT))
 from boitia.remote_verify import verify_remote
 
 def main():
-    if "--confirmed-free-plan" not in sys.argv or not os.environ.get("CLOUDFLARE_API_TOKEN"):
-        raise SystemExit("Confirmá Workers Free y cargá el token de despliegue.")
+    oauth = "--oauth" in sys.argv
+    if "--confirmed-free-plan" not in sys.argv:
+        raise SystemExit("Confirmá Workers Free con --confirmed-free-plan.")
+    if oauth:
+        if os.environ.get("CLOUDFLARE_API_TOKEN"):
+            raise SystemExit("Quitá CLOUDFLARE_API_TOKEN del entorno para usar OAuth.")
+    elif not os.environ.get("CLOUDFLARE_API_TOKEN"):
+        raise SystemExit("Cargá el token o iniciá sesión con Wrangler y usá --oauth.")
     subprocess.run([sys.executable,str(ROOT/"scripts/build_cloudflare.py")],cwd=ROOT,check=True)
-    cmd=["npx","--yes","wrangler@4","versions"]
+    cmd=["npx","--yes","wrangler@4.168.0" if oauth else "wrangler@4","versions"]
     config=["--config","deploy/cloudflare/wrangler.jsonc"]
     upload=subprocess.run(cmd+["upload"]+config,cwd=ROOT,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
     print(upload.stdout,flush=True)

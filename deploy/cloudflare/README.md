@@ -41,3 +41,20 @@ python3 scripts/benchmark_cloudflare.py
 ```
 
 Cada ejecución consume una solicitud de la cuota gratuita; informa tiempo al primer texto visible, tiempo total, palabras y caracteres, no una estimación de tokens/s. La calidad y latencia dependen del proveedor; no se prometen siete segundos.
+
+### Actualizaciones sin token manual (OAuth)
+Desde WSL, con Workers Free y la cuenta correcta, iniciá sesión mediante el flujo de dispositivo (sin localhost):
+
+```bash
+unset CLOUDFLARE_API_TOKEN
+npx --yes wrangler@4.168.0 login --device --browser=false
+```
+
+Abrí en Chrome el enlace impreso por Wrangler y autorizá tu propia cuenta. La credencial OAuth se guarda localmente por Wrangler; no la incluyas en el repositorio. Luego, en la raíz del repo actualizado:
+
+```bash
+export CLOUDFLARE_ACCOUNT_ID="e46fabce5acf65563e13e8c946af64b8"
+python3 scripts/update_cloudflare.py --oauth --confirmed-free-plan
+```
+
+No crea un Worker nuevo ni modifica rutas, dominios o plan. Las próximas actualizaciones pueden reutilizar la sesión mientras siga válida; si expira, repetí el login.
