@@ -23,3 +23,7 @@ El Worker no es un servicio GPU reservado: las consultas consumen la cuota de in
 ## Alternativa HTTPS si workers.dev no emite certificado
 
 En Cloudflare Dashboard, Workers & Pages → boitia-ai → Domains (o Settings → Domains & Routes) → Add → Custom Domain. Agregar únicamente `boitia-ai.agustinwojtyszyn.com` si está libre; no cambiar registros existentes del dominio principal ni aceptar una compra. Una vez que el certificado esté activo, probar el motor mediante `verify_remote("cloudflare","https://boitia-ai.agustinwojtyszyn.com")`. Sólo publicar la URL en el registro cuando pase la prueba. No desactivar HTTPS ni la validación de certificados.
+
+
+## Presupuestos de salida
+Rápido 8.192, Equilibrado 32.768 y Profundo 128.000 tokens son máximos configurados por solicitud, no cantidades garantizadas por el proveedor. Gemma documenta una ventana de contexto de 256K, que no equivale a una salida garantizada. Las respuestas breves terminan antes de alcanzar su máximo. Cloudflare puede aplicar límites efectivos inferiores, tiempos de espera y su cuota gratuita diaria; no se contrata capacidad adicional. La interfaz aguarda hasta 10 minutos en el transporte JSON, pero ese tiempo no amplía el límite del proveedor. Los tres máximos aparecen en /health para verificar la versión activa.

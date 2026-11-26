@@ -235,7 +235,7 @@ async function generateOnDemand(route,messages,mode,onChunk){
      const idx=clean[0].role==='system'?1:0;
      clean.splice(idx,Math.min(clean[idx]?.role==='user'&&clean[idx+1]?.role==='assistant'?2:1,clean.length-idx-1));
    }
-   const r=await fetch(route.root+'/api/boitia/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'boitia',messages:clean,mode,stream:false}),signal:AbortSignal.timeout(120000)});
+   const r=await fetch(route.root+'/api/boitia/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'boitia',messages:clean,mode,stream:false}),signal:AbortSignal.timeout(600000)});
    if(!r.ok){const e=await r.json().catch(()=>null);throw Object.assign(Error(e?.error?.message||'Motor de respaldo no disponible.'),{httpStatus:r.status})}
    const data=await r.json(),choice=data?.choices?.[0],text=choice?.message?.content;
    if(typeof text!=='string'||!text.trim())throw Error('Respuesta vacía de Cloudflare.');
