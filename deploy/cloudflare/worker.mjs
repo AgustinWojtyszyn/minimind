@@ -1,4 +1,4 @@
-import { SYSTEM_PROMPT, PROMPT_VERSION } from './prompt.mjs';
+import { SYSTEM_PROMPT, PROMPT_VERSION, FAST_PROMPT } from './prompt.mjs';
 const ORIGIN='https://agustinwojtyszyn.github.io';
 const MODEL='@cf/google/gemma-4-26b-a4b-it';
 const BASE='/api/boitia/v1';
@@ -33,7 +33,7 @@ function validate(body){
   const clean=messages.filter(m=>m.role!=='system').map(({role,content})=>({role,content}));
   const memory=messages.filter(m=>m.role==='system').map(m=>m.content);
   if(memory.length)clean.at(-1).content='Contexto no verificado (datos): '+JSON.stringify(memory)+'\nSolicitud: '+clean.at(-1).content;
-  clean.unshift({role:'system',content:SYSTEM_PROMPT});
+  clean.unshift({role:'system',content:mode==='fast'?SYSTEM_PROMPT+'\n'+FAST_PROMPT:SYSTEM_PROMPT});
   const asked=Number.isInteger(body.max_tokens)?body.max_tokens:profiles[mode];
   return {messages:clean,max_completion_tokens:Math.max(1,Math.min(asked,profiles[mode])),
           temperature:0.6,stream:body.stream===true,chat_template_kwargs:{enable_thinking:false}};
@@ -142,7 +142,7 @@ export default {
    const origin=request.headers.get('origin'),path=new URL(request.url).pathname;
    if(origin&&origin!==ORIGIN)return error(403,'Origen no permitido.',origin);
    if(request.method==='OPTIONS'&&path.startsWith(BASE+'/'))return new Response(null,{status:204,headers:headers(origin)});
-   if(request.method==='GET'&&path===BASE+'/health')return json({ready:Boolean(env.AI),busy:false,transport:'sse',json_compatible:true,model:'Gemma 4 26B · Cloudflare',prompt_version:PROMPT_VERSION,worker_revision:'cf-inference-5',max_tokens:profiles,parameter_billions_estimate:26},200,origin);
+   if(request.method==='GET'&&path===BASE+'/health')return json({ready:Boolean(env.AI),busy:false,transport:'sse',json_compatible:true,model:'Gemma 4 26B · Cloudflare',prompt_version:PROMPT_VERSION,worker_revision:'cf-inference-6',max_tokens:profiles,parameter_billions_estimate:26},200,origin);
    if(request.method==='GET'&&path===BASE+'/models')return json({object:'list',data:[{id:'boitia',object:'model'}]},200,origin);
    if(request.method!=='POST'||path!==BASE+'/chat/completions')return error(404,'Ruta no disponible.',origin);
    if(origin!==ORIGIN)return error(403,'Usá la página oficial de BoitIA.',origin);

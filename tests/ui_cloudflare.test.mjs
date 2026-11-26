@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import worker from '../deploy/cloudflare/worker.mjs';
-import {SYSTEM_PROMPT,PROMPT_VERSION} from '../deploy/cloudflare/prompt.mjs';
+import {SYSTEM_PROMPT,PROMPT_VERSION,FAST_PROMPT} from '../deploy/cloudflare/prompt.mjs';
 const BASE='https://boitia-ai.test.workers.dev/api/boitia/v1';
 const ORIGIN='https://agustinwojtyszyn.github.io';
 let calls=0,quota=false,expectedBudget=32768;
 const env={AI:{run:async(id,input)=>{
   calls++;
   assert.equal(id,'@cf/google/gemma-4-26b-a4b-it');
-  assert.equal(input.messages[0].content,SYSTEM_PROMPT);
+  assert.equal(input.messages[0].content,SYSTEM_PROMPT+(expectedBudget===8192?"\n"+FAST_PROMPT:""));
   assert.equal(input.max_completion_tokens,expectedBudget);
   assert.equal(input.stream,false);
   assert.deepEqual(input.chat_template_kwargs,{enable_thinking:false});

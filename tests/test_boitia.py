@@ -29,6 +29,17 @@ class Tests(unittest.TestCase):
         self.assertEqual(select_candidates([10,10],40)[0].model_id,'Qwen/Qwen3-14B')
         self.assertEqual(select_candidates([3,3],5)[0].model_id,'Qwen/Qwen2.5-1.5B-Instruct')
         self.assertFalse(select_candidates([0],100))
+    def test_fast_style_keeps_full_budget_and_input(self):
+        from unittest.mock import patch
+        from boitia.config import FAST_PROMPT
+        from boitia.inference import Result, respond
+        msgs=[{'role':'system','content':'Sistema'},{'role':'user','content':'Explicá en detalle la receta'}]
+        with patch('boitia.inference.generate',return_value=Result('Receta',2,3,1,'stop')) as mock:
+            respond(None,None,msgs,'fast',max_tokens=512)
+            self.assertEqual(mock.call_args.args[2][0]['content'],'Sistema\n'+FAST_PROMPT)
+            self.assertEqual(mock.call_args.args[4],512)
+            self.assertEqual(msgs[0]['content'],'Sistema')
+        self.assertIn('no límites',FAST_PROMPT)
     def test_deep_streams_single_pass(self):
         from unittest.mock import patch
         from boitia.inference import Result, respond

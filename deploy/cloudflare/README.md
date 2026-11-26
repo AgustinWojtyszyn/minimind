@@ -30,3 +30,14 @@ Rápido 8.192, Equilibrado 32.768 y Profundo 128.000 tokens son máximos configu
 
 ## Latencia: verificación real
 Con el Worker actualizado, `/health` indica `transport: "sse"` y `worker_revision: "cf-inference-5"`. El cliente solicita streaming; la velocidad neuronal sigue dependiendo del proveedor. Comparar tiempo hasta el primer fragmento de contenido y tiempo total sobre la misma consulta y modo; el comentario SSE inicial no cuenta como token generado.
+
+## Modo rápido conversacional (prompt 2.3)
+El modo rápido aplica una pauta de brevedad de 40–100 palabras para consultas cotidianas, sin un nuevo límite duro de tokens; las solicitudes de detalle, código y justificación conservan su presupuesto. Se adapta al español rioplatense. Los modos equilibrado y profundo no reciben esta pauta de brevedad. El revisionado del Worker ahora es `cf-inference-6`.
+
+Para medir una consulta real desde WSL antes y después del despliegue:
+
+```bash
+python3 scripts/benchmark_cloudflare.py
+```
+
+Cada ejecución consume una solicitud de la cuota gratuita; informa tiempo al primer texto visible, tiempo total, palabras y caracteres, no una estimación de tokens/s. La calidad y latencia dependen del proveedor; no se prometen siete segundos.

@@ -3,7 +3,7 @@ import time
 import os
 import re
 from dataclasses import dataclass
-from .config import PROFILES
+from .config import PROFILES, FAST_PROMPT
 
 @dataclass
 class Result:
@@ -101,13 +101,7 @@ def respond(model, tokenizer, messages, mode='balanced', max_tokens=None, temper
         # Reduce unnecessary generated tokens rather than truncate useful answers.
         messages = [dict(m) for m in messages]
         if messages[0]['role'] == 'system':
-            messages[0]['content'] += (
-                '\nModo instantáneo: comienza directamente con la respuesta. '
-                'Para consultas sencillas, usa la mínima extensión útil; evita repetir '
-                'la pregunta, introducciones, resúmenes redundantes y cierres innecesarios. '
-                'Si se solicita una explicación, código, una lista extensa, un formato '
-                'específico o un análisis completo, conserva todos los detalles necesarios.'
-            )
+            messages[0]['content'] += '\n' + FAST_PROMPT
     if mode == 'deep':
         messages = [dict(m) for m in messages]
         if messages[0]['role'] == 'system':
