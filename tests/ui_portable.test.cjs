@@ -39,6 +39,8 @@ vm.runInContext(html.slice(html.indexOf('function validKaggle('),html.indexOf('f
  registry={version:1,kaggle_url:'https://evil.test',modal_url:'https://evil.test'};ctx.state={};remoteCalls=[];
  assert.equal(await ctx.connectPublic(),false);assert.deepEqual(remoteCalls,['engine.json']);
  for(const invalid of ['http://my-tunnel.trycloudflare.com','https://evil.test','https://my-tunnel.trycloudflare.com/path','https://user@my-tunnel.trycloudflare.com'])assert.throws(()=>ctx.validKaggle(invalid));
+ assert.equal(ctx.validRemote('cloudflare','https://boitia-ai.agustinwojtyszyn.com'),'https://boitia-ai.agustinwojtyszyn.com');
+ assert.throws(()=>ctx.validRemote('cloudflare','https://agustinwojtyszyn.com'));
  assert.throws(()=>ctx.validRemote('zerogpu','https://owner-boitia.hf.space/path'));
  assert(!html.includes('Guardar túnel Kaggle'));
  console.log('PASS: shared route rotation, deterministic fallback, no background GPU wake, opt-in local');

@@ -5,6 +5,11 @@ import unittest
 from boitia.registry import publish_engine, validate_tunnel, validate_provider_url, REGISTRY_API
 
 class RegistryTests(unittest.TestCase):
+    def test_cloudflare_custom_domain(self):
+        self.assertEqual(validate_provider_url("cloudflare","https://boitia-ai.agustinwojtyszyn.com"),"https://boitia-ai.agustinwojtyszyn.com")
+        for url in ("https://agustinwojtyszyn.com","https://boitia-ai.agustinwojtyszyn.com/path"):
+            with self.assertRaises(ValueError):validate_provider_url("cloudflare",url)
+
     def test_validation(self):
         self.assertEqual(validate_tunnel("https://demo.trycloudflare.com"),"https://demo.trycloudflare.com")
         for url in ("https://evil.example","https://x.trycloudflare.com/path","https://x.trycloudflare.com@evil.example"):

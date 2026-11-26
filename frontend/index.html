@@ -26,7 +26,7 @@ function validKaggle(value){
 }
 function validRemote(provider,value){
  const u=new URL(value);
- const patterns={cloudflare:/^boitia-ai\.[a-z0-9-]+\.workers\.dev$/,modal:/^(?:[a-z0-9-]+\.modal\.run|[a-z0-9-]+\.[a-z0-9-]+\.modal\.direct)$/,zerogpu:/^[a-z0-9-]+\.hf\.space$/,cpu:/^boitia\.agustinwojtyszyn\.com$/};
+ const patterns={cloudflare:/^(?:boitia-ai\.[a-z0-9-]+\.workers\.dev|boitia-ai\.agustinwojtyszyn\.com)$/,modal:/^(?:[a-z0-9-]+\.modal\.run|[a-z0-9-]+\.[a-z0-9-]+\.modal\.direct)$/,zerogpu:/^[a-z0-9-]+\.hf\.space$/,cpu:/^boitia\.agustinwojtyszyn\.com$/};
  if(u.protocol!=='https:'||!patterns[provider]?.test(u.hostname)||u.port||u.username||u.password||u.search||u.hash||u.pathname!=='/')throw Error('Motor remoto inválido.');
  return u.origin;
 }
