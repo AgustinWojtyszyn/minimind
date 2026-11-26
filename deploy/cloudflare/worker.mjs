@@ -36,7 +36,7 @@ function validate(body){
   clean.unshift({role:'system',content:SYSTEM_PROMPT});
   const asked=Number.isInteger(body.max_tokens)?body.max_tokens:profiles[mode];
   return {messages:clean,max_completion_tokens:Math.max(1,Math.min(asked,profiles[mode])),
-          temperature:0.6,stream:false,chat_template_kwargs:{enable_thinking:false}};
+          temperature:0.6,stream:body.stream===true,chat_template_kwargs:{enable_thinking:false}};
 }
 // Best-effort isolate-local abuse throttle, not an account-wide quota or authentication.
 function allow(request){
@@ -58,12 +58,91 @@ function finalText(result){
   if(!answer)throw Object.assign(Error('Respuesta vacía.'),{kind:'empty_output'});
   return answer;
 }
+// Filter private trace markers even when the provider splits them across frames.
+function visibleText(){
+  let pending='',hidden=false;
+  const forbidden=['<|channel|>','<|start|>'];
+  return (chunk,final=false)=>{
+    pending+=chunk;
+    let out='';
+    for(;;){
+      const markers=[hidden?'</think>':'<think>',...forbidden];
+      const lower=pending.toLowerCase();
+      const hits=markers.map(marker=>({marker,at:lower.indexOf(marker)})).filter(x=>x.at>=0).sort((a,b)=>a.at-b.at);
+      if(hits.length){
+        const {marker,at}=hits[0];
+        if(forbidden.includes(marker))throw Error('Formato interno no admitido.');
+        if(!hidden)out+=pending.slice(0,at);
+        pending=pending.slice(at+marker.length);hidden=!hidden;continue;
+      }
+      let keep=0;
+      for(const marker of markers)for(let n=1;n<marker.length;n++)if(lower.endsWith(marker.slice(0,n)))keep=Math.max(keep,n);
+      if(!hidden)out+=pending.slice(0,pending.length-keep);
+      pending=final?'':pending.slice(pending.length-keep);
+      return out;
+    }
+  };
+}
+function streamResponse(source,origin){
+  const reader=source.getReader(),decoder=new TextDecoder(),encoder=new TextEncoder(),filter=visibleText();
+  const frame=data=>encoder.encode('data: '+JSON.stringify(data)+'\n\n');
+  const delta=content=>frame({choices:[{index:0,delta:{content},finish_reason:null}]});
+  let cancelled=false;
+  async function* events(){
+    let buffer='',finish=null,hasText=false,ended=false;
+    try{
+      // Send headers immediately, without waiting for the first generated token.
+      yield encoder.encode(': connected\n\n');
+      while(!ended){
+        const {done,value}=await reader.read();
+        buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});
+        if(done&&buffer.trim())buffer+='\n\n';
+        let match;
+        while((match=/\r?\n\r?\n/.exec(buffer))){
+          const event=buffer.slice(0,match.index);buffer=buffer.slice(match.index+match[0].length);
+          const payload=event.split(/\r?\n/).filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trimStart()).join('\n');
+          if(!payload)continue;
+          if(payload==='[DONE]'){ended=true;break}
+          const data=JSON.parse(payload);
+          if(data.error||data.success===false)throw Error('Error del proveedor.');
+          const choice=data.choices?.[0];
+          const chunk=choice?.delta?.content??data.response;
+          if(typeof chunk==='string'){
+            const text=filter(chunk);
+            if(text){hasText=hasText||Boolean(text.trim());yield delta(text)}
+          }
+          if(choice?.finish_reason||data.finish_reason)finish=choice?.finish_reason||data.finish_reason;
+        }
+        if(buffer.length>262144)throw Error('Trama demasiado grande.');
+        if(done)break;
+      }
+      if(!ended&&!finish)throw Error('Generación interrumpida.');
+      if(finish&& !['stop','length'].includes(finish))throw Error('Generación interrumpida.');
+      const tail=filter('',true);
+      if(tail){hasText=hasText||Boolean(tail.trim());yield delta(tail)}
+      if(!hasText)throw Error('Respuesta vacía.');
+      yield frame({choices:[{index:0,delta:{},finish_reason:finish||'stop'}]});
+      yield encoder.encode('data: [DONE]\n\n');
+    }catch{
+      if(!cancelled)yield frame({error:{message:'El respaldo de Cloudflare interrumpió la generación.'}});
+    }finally{await reader.cancel().catch(()=>{})}
+  }
+  const iterator=events();
+  return new Response(new ReadableStream({
+    async pull(controller){
+      const {value,done}=await iterator.next();
+      if(cancelled)return;
+      if(done)controller.close();else controller.enqueue(value);
+    },
+    async cancel(){cancelled=true;await reader.cancel().catch(()=>{});await iterator.return()}
+  }),{headers:{...headers(origin),'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-store, no-transform'}});
+}
 export default {
  async fetch(request,env){
    const origin=request.headers.get('origin'),path=new URL(request.url).pathname;
    if(origin&&origin!==ORIGIN)return error(403,'Origen no permitido.',origin);
    if(request.method==='OPTIONS'&&path.startsWith(BASE+'/'))return new Response(null,{status:204,headers:headers(origin)});
-   if(request.method==='GET'&&path===BASE+'/health')return json({ready:Boolean(env.AI),busy:false,transport:'json',model:'Gemma 4 26B · Cloudflare',prompt_version:PROMPT_VERSION,worker_revision:'cf-inference-4',max_tokens:profiles,parameter_billions_estimate:26},200,origin);
+   if(request.method==='GET'&&path===BASE+'/health')return json({ready:Boolean(env.AI),busy:false,transport:'sse',json_compatible:true,model:'Gemma 4 26B · Cloudflare',prompt_version:PROMPT_VERSION,worker_revision:'cf-inference-5',max_tokens:profiles,parameter_billions_estimate:26},200,origin);
    if(request.method==='GET'&&path===BASE+'/models')return json({object:'list',data:[{id:'boitia',object:'model'}]},200,origin);
    if(request.method!=='POST'||path!==BASE+'/chat/completions')return error(404,'Ruta no disponible.',origin);
    if(origin!==ORIGIN)return error(403,'Usá la página oficial de BoitIA.',origin);
@@ -74,6 +153,7 @@ export default {
    if(!allow(request))return error(429,'Límite temporal de solicitudes.',origin);
    try{
       const result=await env.AI.run(MODEL,input);
+      if(input.stream&&typeof result?.getReader==='function')return streamResponse(result,origin);
       const text=finalText(result);
       const reason=result?.choices?.[0]?.finish_reason;
       return json({object:'chat.completion',model:'boitia',engine:MODEL,choices:[{index:0,message:{role:'assistant',content:text},finish_reason:reason==='length'?'length':'stop'}]},200,origin);

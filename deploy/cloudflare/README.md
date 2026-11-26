@@ -18,7 +18,7 @@ El script instala Wrangler con npx, genera el prompt actualizado, despliega úni
 
 Cuando imprima `Cloudflare verificado`, la URL estable será `https://boitia-ai.<subdominio>.workers.dev`. Si el secreto BOITIA_GITHUB_TOKEN existe ya en el entorno, el script publica la URL; de lo contrario, comunicar sólo la URL verificada al administrador para registrarla en `docs/engine.json`. No se debe publicar una URL no probada. El registro conserva Kaggle y las demás rutas. Si el respaldo debe retirarse, poner `cloudflare_url` a `null` y detener el Worker. Los visitantes no necesitan cuenta, token ni descargas.
 
-El Worker no es un servicio GPU reservado: las consultas consumen la cuota de inferencia, no hay un proceso de Kaggle que mantener activo. El health check no llama a AI. La respuesta JSON se transforma a la interfaz de BoitIA sin mostrar metadatos internos de razonamiento. Su generación no es progresiva en este perfil inicial; el frontend indica que está trabajando. Las métricas y la calidad deben verificarse en el despliegue real.
+El Worker no es un servicio GPU reservado: las consultas consumen la cuota de inferencia, no hay un proceso de Kaggle que mantener activo. El health check no llama a AI. La respuesta JSON se transforma a la interfaz de BoitIA sin mostrar metadatos internos de razonamiento. El Worker admite streaming SSE cuando el cliente lo solicita (y conserva JSON para clientes anteriores). La interfaz muestra texto progresivamente, conserva respuestas parciales y no reenvía automáticamente una consulta interrumpida. El fallback Cloudflare evita esperar más de 1,5 segundos por un Kaggle sin respuesta al comprobar disponibilidad. Las métricas y la calidad deben verificarse en el despliegue real.
 
 ## Alternativa HTTPS si workers.dev no emite certificado
 
@@ -26,4 +26,7 @@ En Cloudflare Dashboard, Workers & Pages → boitia-ai → Domains (o Settings �
 
 
 ## Presupuestos de salida
-Rápido 8.192, Equilibrado 32.768 y Profundo 128.000 tokens son máximos configurados por solicitud, no cantidades garantizadas por el proveedor. Gemma documenta una ventana de contexto de 256K, que no equivale a una salida garantizada. Las respuestas breves terminan antes de alcanzar su máximo. Cloudflare puede aplicar límites efectivos inferiores, tiempos de espera y su cuota gratuita diaria; no se contrata capacidad adicional. La interfaz aguarda hasta 10 minutos en el transporte JSON, pero ese tiempo no amplía el límite del proveedor. Los tres máximos aparecen en /health para verificar la versión activa.
+Rápido 8.192, Equilibrado 32.768 y Profundo 128.000 tokens son máximos configurados por solicitud, no cantidades garantizadas por el proveedor. Gemma documenta una ventana de contexto de 256K, que no equivale a una salida garantizada. Las respuestas breves terminan antes de alcanzar su máximo. Cloudflare puede aplicar límites efectivos inferiores, tiempos de espera y su cuota gratuita diaria; no se contrata capacidad adicional. La interfaz aguarda hasta 10 minutos en la solicitud, pero ese tiempo no amplía el límite del proveedor. Los tres máximos aparecen en /health para verificar la versión activa.
+
+## Latencia: verificación real
+Con el Worker actualizado, `/health` indica `transport: "sse"` y `worker_revision: "cf-inference-5"`. El cliente solicita streaming; la velocidad neuronal sigue dependiendo del proveedor. Comparar tiempo hasta el primer fragmento de contenido y tiempo total sobre la misma consulta y modo; el comentario SSE inicial no cuenta como token generado.

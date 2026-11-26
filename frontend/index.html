@@ -56,7 +56,7 @@ async function selectShared(config){
    }
    try{
      const shared=route.root+'/api/boitia/v1';
-     const h=await fetch(shared+'/health',{cache:'no-store',signal:AbortSignal.timeout(5000)});
+     const h=await fetch(shared+'/health',{cache:'no-store',signal:AbortSignal.timeout(route.provider==='kaggle'&&candidates.some(c=>c.provider==='cloudflare')?1500:5000)});
      const data=h.ok?await h.json():null;
      if(data?.ready===true){
        if(data.busy){occupied=occupied||{route,shared,data};continue}
@@ -233,8 +233,13 @@ async function generateOnDemand(route,messages,mode,onChunk){
      const idx=clean[0].role==='system'?1:0;
      clean.splice(idx,Math.min(clean[idx]?.role==='user'&&clean[idx+1]?.role==='assistant'?2:1,clean.length-idx-1));
    }
-   const r=await fetch(route.root+'/api/boitia/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'boitia',messages:clean,mode,stream:false}),signal:AbortSignal.timeout(600000)});
+   const r=await fetch(route.root+'/api/boitia/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'boitia',messages:clean,mode,stream:true}),signal:AbortSignal.timeout(600000)});
    if(!r.ok){const e=await r.json().catch(()=>null);throw Object.assign(Error(e?.error?.message||'Motor de respaldo no disponible.'),{httpStatus:r.status})}
+   if(r.headers?.get('content-type')?.includes('text/event-stream')){
+     let text='';const finish=await readStream(r,chunk=>{text+=chunk;onChunk(text)});
+     return {text,finish_reason:finish};
+   }
+   // Compatibility with the previous Worker version during rollout.
    const data=await r.json(),choice=data?.choices?.[0],text=choice?.message?.content;
    if(typeof text!=='string'||!text.trim())throw Error('Respuesta vacía de Cloudflare.');
    onChunk(text);return {text,finish_reason:choice.finish_reason};
@@ -291,7 +296,8 @@ $('composer').onsubmit=async e=>{
     const messages=requestMessages(c,q);
     if(globalThis.BoitiaPortable&&remoteRoute&&health?.onDemand){
       provisional={role:'assistant',content:''};c.messages.push(provisional);
-      const data=await generateOnDemand(remoteRoute,messages,state.intelligence,text=>{provisional.content=text;render()});
+      let lastRender=-Infinity;
+      const data=await generateOnDemand(remoteRoute,messages,state.intelligence,text=>{provisional.content=text;if(performance.now()-lastRender>90){render();lastRender=performance.now()}});
       if(typeof data.text!=='string'||!data.text.trim())throw Error('Respuesta vacía');
       provisional.content=data.text;provisional.truncated=data.finish_reason==='length';provisional=null;successful=true;persist();return;
     }

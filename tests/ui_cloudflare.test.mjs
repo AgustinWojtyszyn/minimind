@@ -29,3 +29,38 @@ expectedBudget=8192;assert.equal((await send(ORIGIN,{...body,mode:'fast'})).stat
 expectedBudget=128000;assert.equal((await send(ORIGIN,{...body,mode:'deep'})).status,200);
 expectedBudget=32768;quota=true;const exhausted=await send();assert.equal(exhausted.status,429);assert.equal((await exhausted.json()).error.provider_code,'3036');
 console.log('PASS: Cloudflare binding, prompt v'+PROMPT_VERSION+', origin, budget, no inference on health, quota error');
+
+const encoder=new TextEncoder(),decoder=new TextDecoder();
+let streamId=2;
+async function streaming(parts){
+  const env={AI:{run:async(id,input)=>{
+    assert.equal(input.stream,true);assert.equal(input.max_completion_tokens,32768);
+    return new ReadableStream({start(controller){for(const part of parts)controller.enqueue(encoder.encode(part));controller.close()}});
+  }}};
+  return worker.fetch(req('/chat/completions',{method:'POST',headers:{Origin:ORIGIN,'Content-Type':'application/json','cf-connecting-ip':'192.0.2.'+streamId++},body:JSON.stringify({...body,stream:true})}),env);
+}
+const event=(data)=>'data: '+JSON.stringify(data)+'\r\n\r\n';
+const chunk=(content,finish_reason=null)=>event({choices:[{delta:{content,reasoning_content:'PRIVATE'},finish_reason}]});
+const s=await streaming([chunk('<thi'),chunk('nk>hidden</th'),chunk('ink>Hola'),chunk(' mundo'),chunk('','length'),'data: [DONE]\r\n\r\n']);
+assert.match(s.headers.get('content-type'),/text\/event-stream/);
+const sText=await s.text();
+assert.match(sText,/Hola/);assert.match(sText,/ mundo/);assert.match(sText,/"finish_reason":"length"/);assert.match(sText,/\[DONE\]/);
+assert.doesNotMatch(sText,/PRIVATE|hidden|<think>/);
+const legacy=await streaming(['data: {"response":"4"}\n','\ndata: [DONE]\n\n']);
+assert.match(await legacy.text(),/"content":"4"/);
+const interrupted=await streaming([chunk('Parcial')]);
+const partial=await interrupted.text();assert.match(partial,/Parcial/);assert.match(partial,/"error"/);assert.doesNotMatch(partial,/\[DONE\]/);
+const forbidden=await streaming([chunk('Hola <|chan'),chunk('nel|>secret'),'data: [DONE]\n\n']);
+const blocked=await forbidden.text();assert.match(blocked,/Hola/);assert.match(blocked,/"error"/);assert.doesNotMatch(blocked,/secret|channel|\[DONE\]/);
+// Prove delivery before the provider produces its terminal frame.
+let sourceController;
+const live=await worker.fetch(req('/chat/completions',{method:'POST',headers:{Origin:ORIGIN,'Content-Type':'application/json','cf-connecting-ip':'192.0.2.99'},body:JSON.stringify({...body,stream:true})}),{AI:{run:async()=>new ReadableStream({start(c){sourceController=c}})}});
+const liveReader=live.body.getReader();
+assert.match(decoder.decode((await liveReader.read()).value),/connected/);
+sourceController.enqueue(encoder.encode(chunk('Primero')));
+assert.match(decoder.decode((await liveReader.read()).value),/Primero/);
+sourceController.enqueue(encoder.encode(chunk('','stop')+'data: [DONE]\n\n'));sourceController.close();
+assert.match(decoder.decode((await liveReader.read()).value),/"finish_reason":"stop"/);
+assert.match(decoder.decode((await liveReader.read()).value),/\[DONE\]/);
+await liveReader.cancel();
+console.log('PASS: Cloudflare real progressive delivery, reasoning filter, length, interrupted partial, legacy stream');

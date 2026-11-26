@@ -1,11 +1,11 @@
 const {readFileSync}=require('fs'),vm=require('vm'),assert=require('assert/strict');
 const html=readFileSync('frontend/index.html','utf8');
-const calls=[];let fail=false;
+const calls=[];let fail=false,cfStreaming=false;
 const ctx={URL,AbortSignal,Error,JSON,TextDecoder,TextEncoder,Uint8Array,encodeURIComponent,
   readStream:async(r,onChunk)=>{onChunk('4');return 'stop'},
   fetch:async(url,opts)=>{
     calls.push({url,opts});
-    if(url.includes('.workers.dev'))return {ok:true,json:async()=>({choices:[{message:{content:'4'},finish_reason:'stop'}]})};
+    if(url.includes('.workers.dev'))return {ok:true,headers:{get:()=>cfStreaming?'text/event-stream':'application/json'},json:async()=>({choices:[{message:{content:'4'},finish_reason:'stop'}]})};
     if(url.endsWith('/chat/completions'))return {ok:true};
     if(opts.method==='POST')return {ok:true,json:async()=>({event_id:'valid-id'})};
     const stream=new TextEncoder().encode(fail?'event: error\ndata: null\n\n':'event: heartbeat\ndata: null\n\nevent: complete\ndata: [{"text":"4","finish_reason":"stop"}]\n\n');
@@ -16,7 +16,10 @@ vm.runInContext(html.slice(html.indexOf('async function generateOnDemand('),html
 (async()=>{
  const messages=[{role:'user',content:'2+2'}];let text='';
  const cf=await ctx.generateOnDemand({provider:'cloudflare',root:'https://boitia-ai.owner.workers.dev'},messages,'fast',x=>text=x);
- assert.equal(cf.text,'4');assert.equal(JSON.parse(calls[0].opts.body).stream,false);calls.length=0;text='';
+ assert.equal(cf.text,'4');assert.equal(JSON.parse(calls[0].opts.body).stream,true);calls.length=0;text='';
+ cfStreaming=true;
+ const live=await ctx.generateOnDemand({provider:'cloudflare',root:'https://boitia-ai.owner.workers.dev'},messages,'fast',x=>text=x);
+ assert.equal(live.text,'4');assert.equal(text,'4');assert.equal(calls.length,1);calls.length=0;text='';
  const modal=await ctx.generateOnDemand({provider:'modal',root:'https://owner--app.modal.run'},messages,'fast',x=>text=x);
  assert.equal(modal.text,'4');assert.equal(text,'4');assert.equal(calls.length,1);assert.equal(JSON.parse(calls[0].opts.body).stream,true);
  calls.length=0;text='';
