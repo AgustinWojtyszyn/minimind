@@ -19,6 +19,11 @@ vm.runInContext(html.slice(html.indexOf('function validKaggle('),html.indexOf('f
  assert.equal(await ctx.connectPublic(),true);assert.equal(ctx.PUBLIC_API,'https://new-tunnel.trycloudflare.com/api/boitia/v1');
  // On-demand services are configured, never woken by discovery or periodic health checks.
  registry.modal_url='https://owner--boitia-serve.modal.run';registry.zerogpu_url='https://owner-boitia.hf.space';
+ registry.cloudflare_url='https://boitia-ai.owner.workers.dev';
+ remoteReady=false;remoteCalls=[];
+ assert.equal(await ctx.connectPublic(),true);assert.equal(ctx.remoteRoute.provider,'cloudflare');
+ assert.deepEqual(remoteCalls,['engine.json','https://new-tunnel.trycloudflare.com/api/boitia/v1/health']);
+ ctx.remoteCooldown.set(registry.cloudflare_url,Date.now()+60000);
  remoteReady=false;remoteCalls=[];
  assert.equal(await ctx.connectPublic(),true);assert.equal(ctx.remoteRoute.provider,'modal');assert.equal(ctx.health.onDemand,true);
  assert.deepEqual(remoteCalls,['engine.json','https://new-tunnel.trycloudflare.com/api/boitia/v1/health']);

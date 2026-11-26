@@ -9,11 +9,11 @@ La interfaz usa el mismo esquema de almacenamiento, memoria, aprendizaje explíc
 ## Motor híbrido
 
 1. Todos los visitantes leen el mismo registro público `engine.json` y seleccionan automáticamente el túnel del propietario si responde listo. No ingresan URLs ni tokens. Se reintenta incluso si el registro aún no tiene un motor. Si el motor está ocupado, se informa esa condición.
-2. Si Kaggle no responde o está ocupado y hay otros motores registrados por el propietario, la página elige Modal, ZeroGPU y CPU en ese orden. Modal y ZeroGPU no reciben sondeos periódicos: se inician al enviar una consulta. Si falla una solicitud posiblemente aceptada, no se reenvía automáticamente y se aplica un enfriamiento temporal del motor para el siguiente intento.
+2. Si Kaggle no responde o está ocupado y hay otros motores registrados por el propietario, la página elige el respaldo Cloudflare, Modal, ZeroGPU y CPU en ese orden. Cloudflare, Modal y ZeroGPU no reciben sondeos periódicos: se inician al enviar una consulta. Si falla una solicitud posiblemente aceptada, no se reenvía automáticamente y se aplica un enfriamiento temporal del motor para el siguiente intento.
 3. Si no hay ningún motor remoto disponible y el usuario autorizó la descarga de pesos local, la aplicación usa su dispositivo: Qwen2.5-1.5B-Instruct ONNX Q4 con WebGPU; si no es compatible, Qwen2.5-0.5B-Instruct ONNX Q4 con WASM/CPU. Un worker gestiona la generación para no bloquear la interfaz. El modelo local es inferior a 8B y puede ser lento, requerir almacenamiento y consumir batería. No se promete compatibilidad específica con todos los teléfonos.
-4. Los endpoints de Modal, ZeroGPU y CPU no se anuncian en el registro hasta que el propietario los despliegue y aprueben una consulta y CORS reales. No se adquieren créditos ni suscripciones automáticamente.
+4. Los endpoints de Cloudflare, Modal, ZeroGPU y CPU no se anuncian en el registro hasta que el propietario los despliegue y aprueben una consulta y CORS reales. No se adquieren créditos ni suscripciones automáticamente.
 
-No se usan API comerciales en sustitución de los pesos locales. No hay un servidor GPU 24/7 ilimitado. Las descargas de pesos y dependencias necesitan Internet inicialmente; la caché del navegador puede ser eliminada y no garantiza operación completamente fuera de línea. La aplicación no reenvía automáticamente una consulta cuyo POST pudo haber sido aceptado: conserva el texto parcial o el prompt para reintento consciente. La recuperación puede elegir otro motor en la siguiente solicitud.
+El motor propio Qwen3 continúa como primera opción. El respaldo Cloudflare utiliza Gemma 4 open-weight alojado por Cloudflare, no los pesos locales de BoitIA; nunca reemplaza ni modifica el motor propio. No hay un servidor GPU 24/7 ilimitado. Las descargas de pesos y dependencias necesitan Internet inicialmente; la caché del navegador puede ser eliminada y no garantiza operación completamente fuera de línea. La aplicación no reenvía automáticamente una consulta cuyo POST pudo haber sido aceptado: conserva el texto parcial o el prompt para reintento consciente. La recuperación puede elegir otro motor en la siguiente solicitud.
 
 ## Publicación del frontend
 
@@ -44,6 +44,19 @@ subprocess.run([sys.executable,"-u",str(repo/"scripts/kaggle_shared.py")],cwd=re
 El servidor valida conexión pública y CORS con el origen permanente antes de publicar exclusivamente la nueva URL en `docs/engine.json`, en `master`. No incluye credenciales, conversaciones ni otros datos. GitHub Pages actualizará el archivo cuando finalice su publicación. El cliente lee ese registro al abrir y cada 30 segundos; no usa viejos túneles guardados por visitante. Si una sesión de Kaggle termina, los visitantes verán indisponibilidad hasta que se registre un nuevo motor (o podrán activar, voluntariamente, el respaldo local). Esto no es una GPU dedicada 24/7. Las personas que ingresen no necesitan configurar nada ni mantener Kaggle abierto en sus propios dispositivos.
 
 El registro tiene como valor inicial `null` para no inventar un túnel activo. No se habilita CORS general: sólo el origen HTTPS `https://agustinwojtyszyn.github.io` cuando el propietario autoriza el registro. El servidor de Kaggle conserva el modo del mismo origen si se inicia sin secreto. El inicio con secreto no falla si GitHub rechaza la publicación: se informa el problema sin mostrar la credencial.
+
+## Cloudflare Workers AI — respaldo gratuito bajo demanda
+
+Tras el bloqueo de elegibilidad de ZeroGPU, se añadió [deploy/cloudflare/README.md](../deploy/cloudflare/README.md). El motor compartido utiliza Gemma 4 26B A4B alojado por Cloudflare, con el prompt de BoitIA generado desde `boitia/config.py`. La página lo selecciona sólo si Kaggle no está disponible u ocupado. El plan **Workers Free** tiene 10.000 neuronas de inferencia diarias; se detiene al agotar la cuota. Debe confirmar el propietario que no hay Workers Paid antes de desplegar. No se cambia ni adquiere plan automáticamente. No es una instancia de GPU propia ni un reemplazo de Qwen. No requiere usuario, contraseña o descarga por parte de visitantes. Las consultas se envían al proveedor elegido, y la disponibilidad está sujeta a su cuota.
+
+Despliegue desde WSL con Node.js y Python:
+
+```bash
+npx --yes wrangler@4 login
+python scripts/deploy_cloudflare.py --apply --confirmed-free-plan
+```
+
+El script verifica una consulta anónima real y CORS antes de publicar. Si no tiene el token de GitHub en el entorno, imprime una URL verificada para registrarla una sola vez. El registro y el sitio no contienen credenciales.
 
 ## Activar ZeroGPU primero (sin método de pago si la cuenta es elegible)
 
@@ -85,8 +98,10 @@ python -m unittest discover -s tests -v
 node tests/ui_transport.test.cjs
 node tests/ui_portable.test.cjs
 node tests/ui_ondemand.test.cjs
+node tests/ui_cloudflare.test.mjs
+node tests/ui_markdown.test.cjs
 python scripts/build_portable.py
 python -m compileall -q boitia frontend deploy
 ```
 
-Las pruebas locales cubren CORS opt-in, publicación de registro sin secretos, conexión automática de un visitante nuevo, rotación de túnel, respaldo local por consentimiento, validación de URL, persistencia existente y transporte. La inferencia real en Modal, ZeroGPU y Oracle, sus presupuestos y compatibilidad externa requieren validación antes de registrar. GitHub Pages ya está configurado por el propietario; los motores nuevos no se dieron de alta desde el entorno de desarrollo.
+Las pruebas locales cubren CORS opt-in, publicación de registro sin secretos, conexión automática de un visitante nuevo, rotación de túnel, respaldo local por consentimiento, validación de URL, persistencia existente y transporte. La inferencia real en Cloudflare, Modal, ZeroGPU y Oracle, sus presupuestos y compatibilidad externa requieren validación antes de registrar. GitHub Pages ya está configurado por el propietario; los motores nuevos no se dieron de alta desde el entorno de desarrollo.

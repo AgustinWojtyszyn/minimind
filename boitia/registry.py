@@ -17,7 +17,7 @@ def validate_tunnel(url):
 
 
 PROVIDER_FIELDS = {"kaggle": "kaggle_url", "modal": "modal_url",
-                   "zerogpu": "zerogpu_url", "cpu": "cpu_url"}
+                   "zerogpu": "zerogpu_url", "cpu": "cpu_url", "cloudflare": "cloudflare_url"}
 
 
 def validate_provider_url(provider, url):
@@ -27,6 +27,7 @@ def validate_provider_url(provider, url):
         "modal": r"https://[a-z0-9-]+\.modal\.run|https://[a-z0-9-]+\.[a-z0-9-]+\.modal\.direct",
         "zerogpu": r"https://[a-z0-9-]+\.hf\.space",
         "cpu": r"https://boitia\.agustinwojtyszyn\.com",
+        "cloudflare": r"https://boitia-ai\.[a-z0-9-]+\.workers\.dev",
     }
     if provider not in patterns or not isinstance(url,str) or not re.fullmatch(patterns[provider],url):
         raise ValueError("URL de motor remoto inválida.")

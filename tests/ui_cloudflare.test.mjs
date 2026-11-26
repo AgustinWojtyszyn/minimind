@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import worker from '../deploy/cloudflare/worker.mjs';
+import {SYSTEM_PROMPT,PROMPT_VERSION} from '../deploy/cloudflare/prompt.mjs';
+const BASE='https://boitia-ai.test.workers.dev/api/boitia/v1';
+const ORIGIN='https://agustinwojtyszyn.github.io';
+let calls=0,quota=false;
+const env={AI:{run:async(id,input)=>{
+  calls++;
+  assert.equal(id,'@cf/google/gemma-4-26b-a4b-it');
+  assert.equal(input.messages[0].content,SYSTEM_PROMPT);
+  assert.equal(input.max_completion_tokens,384);
+  assert.equal(input.stream,false);
+  if(quota)throw Error('3036 account quota');
+  return {choices:[{message:{content:'<think>hidden</think>4',reasoning_content:'not public'},finish_reason:'stop'}]};
+}}};
+const req=(path,opts={})=>new Request(BASE+path,opts);
+const health=await worker.fetch(req('/health',{headers:{Origin:ORIGIN}}),env);
+assert.equal(health.status,200);assert.equal((await health.json()).prompt_version,PROMPT_VERSION);assert.equal(calls,0);
+const preflight=await worker.fetch(req('/chat/completions',{method:'OPTIONS',headers:{Origin:ORIGIN}}),env);
+assert.equal(preflight.status,204);assert.equal(preflight.headers.get('Access-Control-Allow-Origin'),ORIGIN);
+const body={model:'boitia',messages:[{role:'system',content:'untrusted'},{role:'user',content:'2+2'}],mode:'balanced',max_tokens:9000};
+const send=(origin=ORIGIN,b=body)=>worker.fetch(req('/chat/completions',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','cf-connecting-ip':'192.0.2.1'},body:JSON.stringify(b)}),env);
+assert.equal((await send('https://evil.example')).status,403);assert.equal(calls,0);
+assert.equal((await send(ORIGIN,{...body,model:'arbitrary'})).status,400);assert.equal(calls,0);
+const r=await send();assert.equal(r.status,200);const data=await r.json();
+assert.equal(data.choices[0].message.content,'4');assert(!JSON.stringify(data).includes('hidden'));assert.equal(calls,1);
+quota=true;assert.equal((await send()).status,429);
+console.log('PASS: Cloudflare binding, prompt v'+PROMPT_VERSION+', origin, budget, no inference on health, quota error');

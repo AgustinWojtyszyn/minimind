@@ -29,8 +29,13 @@ def main():
     owner=api.whoami()["name"]
     repo_id=f"{owner}/{args.name}"
     # Refuse to overwrite an existing Space, and never fall back to paid plans.
-    api.create_repo(repo_id,repo_type="space",space_sdk="gradio",space_hardware="zero-a10g",
-                    private=False,exist_ok=False)
+    try:
+        api.create_repo(repo_id,repo_type="space",space_sdk="gradio",space_hardware="zero-a10g",
+                        private=False,exist_ok=False)
+    except Exception as exc:
+        if getattr(getattr(exc,"response",None),"status_code",None)==402:
+            raise SystemExit("Hugging Face no autorizó ZeroGPU gratuito para esta cuenta. No se adquirió ningún plan; revisá elegibilidad o grant.") from None
+        raise
     runtime=api.get_space_runtime(repo_id)
     hardware=getattr(runtime,"hardware",None)
     requested=getattr(runtime,"requested_hardware",None)

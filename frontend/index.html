@@ -26,7 +26,7 @@ function validKaggle(value){
 }
 function validRemote(provider,value){
  const u=new URL(value);
- const patterns={modal:/^(?:[a-z0-9-]+\.modal\.run|[a-z0-9-]+\.[a-z0-9-]+\.modal\.direct)$/,zerogpu:/^[a-z0-9-]+\.hf\.space$/,cpu:/^boitia\.agustinwojtyszyn\.com$/};
+ const patterns={cloudflare:/^boitia-ai\.[a-z0-9-]+\.workers\.dev$/,modal:/^(?:[a-z0-9-]+\.modal\.run|[a-z0-9-]+\.[a-z0-9-]+\.modal\.direct)$/,zerogpu:/^[a-z0-9-]+\.hf\.space$/,cpu:/^boitia\.agustinwojtyszyn\.com$/};
  if(u.protocol!=='https:'||!patterns[provider]?.test(u.hostname)||u.port||u.username||u.password||u.search||u.hash||u.pathname!=='/')throw Error('Motor remoto inválido.');
  return u.origin;
 }
@@ -39,7 +39,7 @@ async function sharedRegistry(){
 }
 async function selectShared(config){
  const candidates=[];let occupied=null;
- for(const provider of ['kaggle','modal','zerogpu','cpu']){
+ for(const provider of ['kaggle','cloudflare','modal','zerogpu','cpu']){
    const value=config[provider+'_url'];if(!value)continue;
    try{
      const root=provider==='kaggle'?validKaggle(value).replace(/\/api\/boitia\/v1$/,''):validRemote(provider,value);
@@ -48,10 +48,10 @@ async function selectShared(config){
    }catch{}
  }
  for(const route of candidates){
-   if(['modal','zerogpu'].includes(route.provider)){
+   if(['cloudflare','modal','zerogpu'].includes(route.provider)){
      // Never ping a GPU endpoint from background status checks. Wake only when a message is sent.
      remoteRoute=route;localMode=false;publicMode=false;connected=true;
-     health={model:route.provider==='modal'?'Qwen3-8B · Modal bajo demanda':'Qwen3-4B · ZeroGPU bajo demanda',onDemand:true};
+     health={model:route.provider==='cloudflare'?'Gemma 4 26B · Cloudflare':route.provider==='modal'?'Qwen3-8B · Modal bajo demanda':'Qwen3-4B · ZeroGPU bajo demanda',onDemand:true};
      return true;
    }
    try{
@@ -87,7 +87,7 @@ if(page==='memory'){heading('Memoria','Recuerdos explícitos que podés revisar,
 if(page==='learning'){heading('Aprendizaje','Prepará ejemplos supervisados. Guardarlos no modifica los pesos neuronales.');const c=card('Nueva enseñanza');const q=el('textarea'),a=el('textarea');q.placeholder='Pregunta o instrucción';a.placeholder='Respuesta correcta';q.setAttribute('aria-label','Pregunta');a.setAttribute('aria-label','Respuesta correcta');c.append(el('label','','Pregunta'),q,el('label','','Respuesta deseada'),a,btn('Guardar enseñanza',()=>{if(!q.value.trim()||!a.value.trim())return;state.lessons.push({id:uid(),question:q.value.trim(),answer:a.value.trim()});persist();render()},'primary'));const l=card('Dataset · '+state.lessons.length+' ejemplos');l.append(btn('Exportar JSONL para SFT',()=>download('boitia-lessons.jsonl',state.lessons.map(x=>JSON.stringify({conversations:[{role:'user',content:x.question},{role:'assistant',content:x.answer}]})).join('\n'),'application/x-ndjson')));for(const x of state.lessons){const row=el('div','item'),body=el('div');body.append(el('strong','',x.question),el('p','muted',x.answer));row.append(body,btn('Eliminar',()=>{state.lessons=state.lessons.filter(y=>y.id!==x.id);persist();render()},'secondary danger'));l.append(row)}}
 if(page==='lab'){heading('Laboratorio','Estado local del proyecto. No se muestran métricas de entrenamiento sin datos del motor.');const s=el('div','stats');for(const [n,val] of [['Conversaciones',state.chats.length],['Recuerdos',state.memories.length],['Enseñanzas',state.lessons.length]]){const c=el('div','card');c.append(el('div','muted',n),el('strong','',String(val)));s.append(c)}root.append(s);const c=card('Motor neuronal');c.append(el('p','',connected?(health?.model||state.model)+(health?.onDemand?' · configurado; se inicia con la consulta':' · conexión verificada'):'Sin conexión verificada'),el('p','muted','Compatible con una API de chat estilo OpenAI. El entrenamiento se realiza por separado en Kaggle.'),btn('Configurar conexión',()=>show('settings')))}
 if(page==='settings'){heading('Configuración',portable?'Administrá tus datos y preferencias personales.':'Conectá un motor propio y controlá tus datos.');const c=card('Conexión neuronal');if(portable){
- c.append(el('p','muted','El motor compartido lo configura el propietario. No necesitás introducir enlaces, tokens ni descargar modelos para usarlo. La conexión se comprueba automáticamente.'),
+ c.append(el('p','muted','El motor compartido lo configura el propietario. No necesitás introducir enlaces, tokens ni descargar modelos. Si Kaggle no está disponible, el motor de respaldo puede procesar mensajes y recuerdos relevantes en un proveedor remoto identificado en la interfaz.'),
  el('p','',connected?(health?.model||'Motor conectado'):'Motor compartido temporalmente no disponible'),
  btn('Comprobar conexión',async()=>{if(busy||connecting)return;await connectPublic();render()},'secondary'))
  const fallback=card('Respaldo local opcional');
@@ -227,6 +227,19 @@ async function pollJob(id,onUpdate){
   }
 }
 async function generateOnDemand(route,messages,mode,onChunk){
+ if(route.provider==='cloudflare'){
+   const clean=messages.map(m=>({...m}));
+   while(clean.length>2&&clean.reduce((n,m)=>n+m.content.length,0)>11000){
+     const idx=clean[0].role==='system'?1:0;
+     clean.splice(idx,Math.min(clean[idx]?.role==='user'&&clean[idx+1]?.role==='assistant'?2:1,clean.length-idx-1));
+   }
+   const r=await fetch(route.root+'/api/boitia/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'boitia',messages:clean,mode,stream:false}),signal:AbortSignal.timeout(120000)});
+   if(!r.ok){const e=await r.json().catch(()=>null);throw Object.assign(Error(e?.error?.message||'Motor de respaldo no disponible.'),{httpStatus:r.status})}
+   const data=await r.json(),choice=data?.choices?.[0],text=choice?.message?.content;
+   if(typeof text!=='string'||!text.trim())throw Error('Respuesta vacía de Cloudflare.');
+   onChunk(text);return {text,finish_reason:choice.finish_reason};
+ }
+
  if(route.provider==='modal'){
    const r=await fetch(route.root+'/api/boitia/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'boitia',messages,mode,max_tokens:Math.min(768,({fast:512,balanced:1536,deep:3072}[mode]||512)),stream:true}),signal:AbortSignal.timeout(240000)});
    if(!r.ok)throw Object.assign(Error('Motor bajo demanda no disponible (HTTP '+r.status+').'),{httpStatus:r.status});

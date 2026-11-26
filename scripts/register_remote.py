@@ -10,7 +10,7 @@ from boitia.remote_verify import verify_remote
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument("--provider",choices=["modal","zerogpu","cpu"],required=True)
+    parser.add_argument("--provider",choices=["modal","zerogpu","cpu","cloudflare"],required=True)
     parser.add_argument("--url",required=True)
     parser.add_argument("--apply",action="store_true")
     parser.add_argument("--confirmed-zero-budget",action="store_true",
@@ -20,8 +20,8 @@ def main():
     if not opts.apply:
         print("Dry run: no service queried and no change to registry.")
         return
-    if opts.provider=="modal" and not opts.confirmed_zero_budget:
-        raise SystemExit("No use Modal sin verificar primero USD 0 de gasto neto.")
+    if opts.provider in ("modal","cloudflare") and not opts.confirmed_zero_budget:
+        raise SystemExit("Confirmá primero el plan Free de Cloudflare o el límite neto USD 0 de Modal.")
     token=os.environ.get("BOITIA_GITHUB_TOKEN")
     if not token:raise SystemExit("Falta BOITIA_GITHUB_TOKEN en el entorno privado.")
     verify_remote(opts.provider,opts.url)
