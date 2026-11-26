@@ -3,7 +3,7 @@ const ORIGIN='https://agustinwojtyszyn.github.io';
 const MODEL='@cf/google/gemma-4-26b-a4b-it';
 const BASE='/api/boitia/v1';
 const MAX_BODY=48*1024,MAX_CHARS=12000;
-const profiles={fast:192,balanced:384,deep:640};
+const profiles={fast:576,balanced:1152,deep:1920};
 const localLimits=new Map();
 
 function headers(origin){
@@ -63,7 +63,7 @@ export default {
    const origin=request.headers.get('origin'),path=new URL(request.url).pathname;
    if(origin&&origin!==ORIGIN)return error(403,'Origen no permitido.',origin);
    if(request.method==='OPTIONS'&&path.startsWith(BASE+'/'))return new Response(null,{status:204,headers:headers(origin)});
-   if(request.method==='GET'&&path===BASE+'/health')return json({ready:Boolean(env.AI),busy:false,transport:'json',model:'Gemma 4 26B · Cloudflare',prompt_version:PROMPT_VERSION,worker_revision:'cf-inference-2',parameter_billions_estimate:26},200,origin);
+   if(request.method==='GET'&&path===BASE+'/health')return json({ready:Boolean(env.AI),busy:false,transport:'json',model:'Gemma 4 26B · Cloudflare',prompt_version:PROMPT_VERSION,worker_revision:'cf-inference-3',max_tokens:profiles,parameter_billions_estimate:26},200,origin);
    if(request.method==='GET'&&path===BASE+'/models')return json({object:'list',data:[{id:'boitia',object:'model'}]},200,origin);
    if(request.method!=='POST'||path!==BASE+'/chat/completions')return error(404,'Ruta no disponible.',origin);
    if(origin!==ORIGIN)return error(403,'Usá la página oficial de BoitIA.',origin);

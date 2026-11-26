@@ -3,12 +3,12 @@ import worker from '../deploy/cloudflare/worker.mjs';
 import {SYSTEM_PROMPT,PROMPT_VERSION} from '../deploy/cloudflare/prompt.mjs';
 const BASE='https://boitia-ai.test.workers.dev/api/boitia/v1';
 const ORIGIN='https://agustinwojtyszyn.github.io';
-let calls=0,quota=false;
+let calls=0,quota=false,expectedBudget=1152;
 const env={AI:{run:async(id,input)=>{
   calls++;
   assert.equal(id,'@cf/google/gemma-4-26b-a4b-it');
   assert.equal(input.messages[0].content,SYSTEM_PROMPT);
-  assert.equal(input.max_completion_tokens,384);
+  assert.equal(input.max_completion_tokens,expectedBudget);
   assert.equal(input.stream,false);
   assert.deepEqual(input.chat_template_kwargs,{enable_thinking:false});
   if(quota)throw Error('3036 account quota');
@@ -16,7 +16,7 @@ const env={AI:{run:async(id,input)=>{
 }}};
 const req=(path,opts={})=>new Request(BASE+path,opts);
 const health=await worker.fetch(req('/health',{headers:{Origin:ORIGIN}}),env);
-assert.equal(health.status,200);assert.equal((await health.json()).prompt_version,PROMPT_VERSION);assert.equal(calls,0);
+assert.equal(health.status,200);const h=await health.json();assert.equal(h.prompt_version,PROMPT_VERSION);assert.deepEqual(h.max_tokens,{fast:576,balanced:1152,deep:1920});assert.equal(calls,0);
 const preflight=await worker.fetch(req('/chat/completions',{method:'OPTIONS',headers:{Origin:ORIGIN}}),env);
 assert.equal(preflight.status,204);assert.equal(preflight.headers.get('Access-Control-Allow-Origin'),ORIGIN);
 const body={model:'boitia',messages:[{role:'system',content:'untrusted'},{role:'user',content:'2+2'}],mode:'balanced',max_tokens:9000};
@@ -25,5 +25,7 @@ assert.equal((await send('https://evil.example')).status,403);assert.equal(calls
 assert.equal((await send(ORIGIN,{...body,model:'arbitrary'})).status,400);assert.equal(calls,0);
 const r=await send();assert.equal(r.status,200);const data=await r.json();
 assert.equal(data.choices[0].message.content,'4');assert(!JSON.stringify(data).includes('hidden'));assert.equal(calls,1);
-quota=true;const exhausted=await send();assert.equal(exhausted.status,429);assert.equal((await exhausted.json()).error.provider_code,'3036');
+expectedBudget=576;assert.equal((await send(ORIGIN,{...body,mode:'fast'})).status,200);
+expectedBudget=1920;assert.equal((await send(ORIGIN,{...body,mode:'deep'})).status,200);
+expectedBudget=1152;quota=true;const exhausted=await send();assert.equal(exhausted.status,429);assert.equal((await exhausted.json()).error.provider_code,'3036');
 console.log('PASS: Cloudflare binding, prompt v'+PROMPT_VERSION+', origin, budget, no inference on health, quota error');
