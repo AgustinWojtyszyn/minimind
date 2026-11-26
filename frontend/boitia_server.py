@@ -321,6 +321,12 @@ def launch(namespace):
     import uvicorn
     import torch
 
+    # The write credential is owner-only. Remove it before starting other processes.
+    registry_token = os.environ.pop("BOITIA_GITHUB_TOKEN", None)
+    if registry_token:
+        from boitia.registry import PUBLIC_ORIGIN
+        os.environ["BOITIA_PORTABLE_ORIGIN"] = PUBLIC_ORIGIN
+
     old = namespace.get("_boitia_runtime")
     if old:
         old[0].terminate()
@@ -423,6 +429,19 @@ def launch(namespace):
                         time.sleep(2)
                 else:
                     raise RuntimeError("El enlace público no respondió a la comprobación.")
+                if registry_token:
+                    try:
+                        from boitia.registry import publish_engine, PUBLIC_ORIGIN
+                        req = urllib.request.Request(url + BASE + "/health", headers={"Origin": PUBLIC_ORIGIN})
+                        with urllib.request.urlopen(req, timeout=10) as response:
+                            if response.headers.get("Access-Control-Allow-Origin") != PUBLIC_ORIGIN or not json.load(response).get("ready"):
+                                raise RuntimeError("La página permanente no puede acceder al motor.")
+                        publish_engine(url, registry_token)
+                        print("Motor registrado para todos los visitantes de la URL permanente.", flush=True)
+                    except Exception:
+                        print("No se pudo registrar el motor. Revisá el permiso Contents: write del secreto.", flush=True)
+                else:
+                    print("Sin secreto BOITIA_GITHUB_TOKEN: el motor no se publicó en la página permanente.", flush=True)
                 print("BoitIA — interfaz pública:", url, flush=True)
                 print("Conexión automática; no se requiere token. Kaggle debe seguir activo.")
                 return url

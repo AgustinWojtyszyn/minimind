@@ -8,7 +8,7 @@ La interfaz usa el mismo esquema de almacenamiento, memoria, aprendizaje explíc
 
 ## Motor híbrido
 
-1. Si el propietario configura el túnel HTTPS de Kaggle y éste responde listo y no ocupado, BoitIA lo elige de forma preferente.
+1. Todos los visitantes leen el mismo registro público `engine.json` y seleccionan automáticamente el túnel del propietario si responde listo. No ingresan URLs ni tokens. Se reintenta incluso si el registro aún no tiene un motor. Si el motor está ocupado, se informa esa condición.
 2. Si no está disponible y el usuario autorizó la descarga de pesos local, la aplicación usa su dispositivo: Qwen2.5-1.5B-Instruct ONNX Q4 con WebGPU; si no es compatible, Qwen2.5-0.5B-Instruct ONNX Q4 con WASM/CPU. Un worker gestiona la generación para no bloquear la interfaz. El modelo local es inferior a 8B y puede ser lento, requerir almacenamiento y consumir batería. No se promete compatibilidad específica con todos los teléfonos.
 3. El prototipo ZeroGPU se prepara como Space Gradio separado, pendiente de despliegue y pruebas reales antes de incorporarlo al selector automático. Usa Qwen3-4B, FP16 y una reserva GPU bajo demanda limitada. No se adquieren créditos ni suscripciones.
 
@@ -21,16 +21,28 @@ No se usan API comerciales en sustitución de los pesos locales. No hay un servi
 - Para actualizar el frontend, ejecuta `python scripts/build_portable.py` antes de versionar. La compilación deriva los archivos estáticos de la interfaz principal; no se mantienen dos diseños divergentes.
 - Los pesos se descargan directamente a la caché del dispositivo por el runtime Transformers.js v3.8.1, no se incorporan a GitHub.
 
-## Conexión de Kaggle desde el dominio permanente
+## Configuración única del propietario: motor compartido
 
-En la celda de inicio de Kaggle, antes de iniciar el servidor:
+El titular de la cuenta configura una credencial de GitHub una sola vez (renovarla cuando caduque). La página pública nunca recibe el secreto ni tiene un endpoint para modificar el registro.
+
+1. Creá un [token de acceso personal fine-grained](https://github.com/settings/personal-access-tokens/new) autorizado sólo para el repositorio `AgustinWojtyszyn/minimind`, con permiso de repositorio **Contents: Read and write**. No seleccionar todos los repositorios ni compartir el token.
+2. En Kaggle, Add-ons → Secrets, guardalo como `BOITIA_GITHUB_TOKEN` y habilitalo exclusivamente para el notebook privado del propietario. No pegarlo en una celda, en conversaciones o en el repositorio.
+3. Detené el motor anterior y ejecutá esta única celda:
 
 ```python
-import os
-os.environ["BOITIA_PORTABLE_ORIGIN"] = "https://agustinwojtyszyn.github.io"
+from pathlib import Path
+import subprocess, sys
+repo = Path("/kaggle/working/boitia")
+if not repo.exists():
+    subprocess.run(["git","clone","--branch","master","https://github.com/AgustinWojtyszyn/minimind.git",str(repo)],check=True)
+else:
+    subprocess.run(["git","-C",str(repo),"pull","--ff-only","origin","master"],check=True)
+subprocess.run([sys.executable,"-u",str(repo/"scripts/kaggle_shared.py")],cwd=repo,check=True)
 ```
 
-Inicia la última versión de `master` usando el procedimiento de [BOITIA.md](BOITIA.md). En la URL de Pages, abre Configuración y pega la URL raíz nueva del túnel. El servidor mantiene mismo origen por defecto; CORS sólo se permite para el origen HTTPS explícito del propietario, sin credenciales ni comodines. No hay API que acepte destinos arbitrarios en el servidor. Los mensajes y recuerdos relevantes se envían al motor Kaggle que el usuario configuró; en modo local se procesan en el dispositivo.
+El servidor valida conexión pública y CORS con el origen permanente antes de publicar exclusivamente la nueva URL en `docs/engine.json`, en `master`. No incluye credenciales, conversaciones ni otros datos. GitHub Pages actualizará el archivo cuando finalice su publicación. El cliente lee ese registro al abrir y cada 30 segundos; no usa viejos túneles guardados por visitante. Si una sesión de Kaggle termina, los visitantes verán indisponibilidad hasta que se registre un nuevo motor (o podrán activar, voluntariamente, el respaldo local). Esto no es una GPU dedicada 24/7. Las personas que ingresen no necesitan configurar nada ni mantener Kaggle abierto en sus propios dispositivos.
+
+El registro tiene como valor inicial `null` para no inventar un túnel activo. No se habilita CORS general: sólo el origen HTTPS `https://agustinwojtyszyn.github.io` cuando el propietario autoriza el registro. El servidor de Kaggle conserva el modo del mismo origen si se inicia sin secreto. El inicio con secreto no falla si GitHub rechaza la publicación: se informa el problema sin mostrar la credencial.
 
 ## ZeroGPU — creación opcional en una cuenta elegible
 
@@ -55,4 +67,4 @@ python scripts/build_portable.py
 python -m compileall -q boitia frontend deploy
 ```
 
-Las pruebas locales cubren CORS opt-in, prioridad Kaggle, respaldo local por consentimiento, validación de URL, persistencia existente y transporte. La descarga/ejecución neuronal real, compatibilidad del móvil, activación de Pages y funcionamiento de ZeroGPU requieren validación externa.
+Las pruebas locales cubren CORS opt-in, publicación de registro sin secretos, conexión automática de un visitante nuevo, rotación de túnel, respaldo local por consentimiento, validación de URL, persistencia existente y transporte. La descarga/ejecución neuronal real, compatibilidad del móvil, activación de Pages y funcionamiento de ZeroGPU requieren validación externa.
