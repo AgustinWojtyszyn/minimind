@@ -3,6 +3,7 @@ import os
 import json
 from urllib.error import HTTPError
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -19,8 +20,14 @@ def main():
             raise SystemExit("Quitá CLOUDFLARE_API_TOKEN del entorno para usar OAuth.")
     elif not os.environ.get("CLOUDFLARE_API_TOKEN"):
         raise SystemExit("Cargá el token o iniciá sesión con Wrangler y usá --oauth.")
+    if oauth:
+        wrangler = shutil.which("wrangler")
+        if not wrangler:
+            raise SystemExit("Ejecutá el actualizador dentro de npm exec con Node 22 y Wrangler en PATH.")
+        cmd = [wrangler, "versions"]
+    else:
+        cmd = ["npx", "--yes", "wrangler@4", "versions"]
     subprocess.run([sys.executable,str(ROOT/"scripts/build_cloudflare.py")],cwd=ROOT,check=True)
-    cmd=["npx","--yes","wrangler@4.168.0" if oauth else "wrangler@4","versions"]
     config=["--config","deploy/cloudflare/wrangler.jsonc"]
     upload=subprocess.run(cmd+["upload"]+config,cwd=ROOT,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
     print(upload.stdout,flush=True)
