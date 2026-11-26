@@ -25,6 +25,10 @@ def adaptive_budget(messages, mode, requested=None):
         return min(limit, 64)
     if mode != 'deep' and len(query) < 600 and re.search(r"(solo|únicamente|exclusivamente) (el entero|un entero|sí o no|el número|un número)[.! ]*$", query):
         return min(limit, 64)
+    if mode == 'fast' and re.search(
+        r"(?:responde|respondé|contesta|contestá) (?:solo |solamente )?(?:en una frase|en una oración|en una línea)[.! ]*$", query
+    ) and not re.search(r"(?:justific|explic|demostr|procedimiento|paso a paso|código|json|tabla)", query):
+        return min(limit, 128)
     return limit
 
 
@@ -92,6 +96,18 @@ def generate(model, tokenizer, messages, mode='balanced', max_tokens=None, tempe
 
 def respond(model, tokenizer, messages, mode='balanced', max_tokens=None, temperature=None, *, on_text=None, cancel=None):
     """Single streaming pass by default; optional legacy two-pass review for comparison."""
+    if mode == 'fast':
+        # Keep the same weights, history, sampling and maximum output budget.
+        # Reduce unnecessary generated tokens rather than truncate useful answers.
+        messages = [dict(m) for m in messages]
+        if messages[0]['role'] == 'system':
+            messages[0]['content'] += (
+                '\nModo instantáneo: comienza directamente con la respuesta. '
+                'Para consultas sencillas, usa la mínima extensión útil; evita repetir '
+                'la pregunta, introducciones, resúmenes redundantes y cierres innecesarios. '
+                'Si se solicita una explicación, código, una lista extensa, un formato '
+                'específico o un análisis completo, conserva todos los detalles necesarios.'
+            )
     if mode == 'deep':
         messages = [dict(m) for m in messages]
         if messages[0]['role'] == 'system':
