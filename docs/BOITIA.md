@@ -1,5 +1,7 @@
 # BoitIA — arquitectura y operación
 
+Para la URL permanente, modo local del navegador y prototipo ZeroGPU, consulta [Disponibilidad](DISPONIBILIDAD.md).
+
 ## Lanzamiento de Kaggle
 
 Activa GPU e Internet si la sesión lo permite. Para migrar desde un notebook con pesos antiguos cargados, reinicia el kernel **sin borrar el almacenamiento**; no basta con detener el túnel si otro objeto Python conserva VRAM. Ejecuta una única celda:

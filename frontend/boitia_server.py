@@ -22,6 +22,8 @@ import urllib.request
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from urllib.parse import urlsplit
 
 MODEL_ID = "boitia"
 BASE = "/api/boitia/v1"
@@ -31,6 +33,15 @@ BASE = "/api/boitia/v1"
 def create_app(model, tokenizer, frontend_html):
     import torch
     app = FastAPI(title="BoitIA", docs_url=None, redoc_url=None, openapi_url=None)
+    # Default remains same-origin; the owner may explicitly allow one HTTPS UI origin.
+    portable_origin = os.environ.get("BOITIA_PORTABLE_ORIGIN", "").strip()
+    if portable_origin:
+        parsed = urlsplit(portable_origin)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.port or parsed.path or parsed.query or parsed.fragment:
+            raise ValueError("BOITIA_PORTABLE_ORIGIN debe ser un origen HTTPS sin ruta.")
+        app.add_middleware(CORSMiddleware, allow_origins=[portable_origin],
+                           allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type"],
+                           allow_credentials=False)
     model.eval()
     gpu_lock = threading.Lock()
     limit_lock = threading.Lock()
@@ -121,10 +132,10 @@ def create_app(model, tokenizer, frontend_html):
 
     @app.post(BASE + "/chat/completions")
     async def complete(request: Request):
-        # No CORS or cross-origin browser API access.
+        # Same-origin by default; one explicitly configured portable origin only.
         origin = request.headers.get("origin")
         host = request.headers.get("host", "")
-        if origin and origin not in ("https://" + host, "http://" + host):
+        if origin and origin not in ("https://" + host, "http://" + host, portable_origin):
             return reject(403, "Origen no permitido.")
         if not request.headers.get("content-type", "").lower().startswith("application/json"):
             return reject(415, "Se requiere JSON.")

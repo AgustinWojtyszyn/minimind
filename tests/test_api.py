@@ -46,6 +46,27 @@ class ApiTests(unittest.TestCase):
                 self.assertEqual(result['metrics']['ttft_seconds'],.05)
         with patch.dict(sys.modules,{'torch':fake}):asyncio.run(run())
 
+    def test_portable_origin_is_opt_in(self):
+        fake=types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=lambda:0,OutOfMemoryError=MemoryError,empty_cache=lambda:None))
+        async def run():
+            with patch.dict('os.environ',{'BOITIA_PORTABLE_ORIGIN':'https://example.github.io'}):
+                app=boitia_server.create_app(FakeModel(),None,'BoitIA')
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test') as c:
+                base=boitia_server.BASE
+                origin='https://example.github.io'
+                r=await c.get(base+'/health',headers={'Origin':origin})
+                self.assertEqual(r.headers.get('access-control-allow-origin'),origin)
+                r=await c.options(base+'/chat/completions',headers={'Origin':origin,'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'content-type'})
+                self.assertEqual(r.status_code,200)
+                r=await c.post(base+'/chat/completions',json={'model':'boitia','messages':[{'role':'user','content':'/calcular 2+2'}]},headers={'Origin':origin})
+                self.assertEqual(r.status_code,200)
+                r=await c.post(base+'/chat/completions',json={'model':'boitia','messages':[{'role':'user','content':'Hola'}]},headers={'Origin':'https://other.example'})
+                self.assertEqual(r.status_code,403)
+                self.assertNotIn('access-control-allow-origin',r.headers)
+            with patch.dict('os.environ',{'BOITIA_PORTABLE_ORIGIN':'*'}):
+                with self.assertRaises(ValueError):boitia_server.create_app(FakeModel(),None,'BoitIA')
+        with patch.dict(sys.modules,{'torch':fake}):asyncio.run(run())
+
     def test_routes_and_validation(self):
         fake=types.SimpleNamespace(cuda=types.SimpleNamespace(device_count=lambda:0,OutOfMemoryError=MemoryError,empty_cache=lambda:None))
         async def run():
