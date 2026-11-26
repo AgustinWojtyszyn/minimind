@@ -12,7 +12,9 @@ if not repo.exists():
     subprocess.run(['git','clone','--branch','master','--depth','1','https://github.com/AgustinWojtyszyn/minimind.git',str(repo)],check=True)
 else:
     subprocess.run(['git','-C',str(repo),'pull','--ff-only','origin','master'],check=True)
-subprocess.run([sys.executable,'-m','pip','install','-q','-r',str(repo/'requirements-boitia.txt')],check=True)
+state=Path('/kaggle/working/boitia-state')
+requirements='requirements-boitia-train.txt' if (state/'active.json').is_file() else 'requirements-boitia.txt'
+subprocess.run([sys.executable,'-m','pip','install','-q','-r',str(repo/requirements)],check=True)
 subprocess.run([sys.executable,'-u',str(repo/'frontend/boitia_server.py')],cwd=repo,check=True)
 ```
 
@@ -66,7 +68,14 @@ python -m boitia.train --dataset boitia-lessons.jsonl --approved approved.txt --
 
 El curador rechaza duplicados, formatos inválidos, pares no aprobados y coincidencias con casos reservados. Esto no detecta todos los parafraseos maliciosos: revisión humana imprescindible. El script requiere al menos diez ejemplos distintos, separa una validación estable, enmascara los tokens del prompt y entrena LoRA NF4 con PEFT/Trainer en una GPU. El informe guarda loss antes/después sobre validación; el candidato nunca se activa automáticamente. Usa `--resume` para recuperar checkpoints si existen; preserva directorios versionados fuera del repositorio. La plantilla y límite de secuencia se validan sin truncar ejemplos. La suficiencia de datos o mejoras estadísticas no están garantizadas. DPO exige pares de preferencias curados, no se implementa todavía.
 
-Para una versión candidata aprobada se requiere evaluar sobre el mismo modelo base y benchmarks reservados, revisar regresiones, privacidad, compatibilidad y seguridad. Este lanzamiento no aplica adaptadores automáticamente: su activación y evaluación comparativa de generación quedan pendientes. No entrenar sobre conversaciones públicas indistintamente.
+Para una versión candidata aprobada se requiere evaluar sobre el mismo modelo base y benchmarks reservados, revisar regresiones, privacidad, compatibilidad y seguridad. Evalúa y promociona explícitamente (requiere PEFT instalado y GPU):
+
+```bash
+python -m boitia.adapters evaluate --model Qwen/Qwen2.5-1.5B-Instruct --adapter boitia-adapters/v1/candidate --output adapter-evaluation.json
+python -m boitia.adapters promote --report adapter-evaluation.json
+```
+
+La promoción compara casos reservados, exige mejora, cero regresiones y ausencia de errores/truncamientos nuevos. Es una condición mínima, no certificación de generalización. Revisa el informe antes de promover. El lanzador sólo recupera el adaptador para su mismo modelo base, desde `BOITIA_STATE/active.json` (por defecto `/kaggle/working/boitia-state`), con verificación del hash de pesos y configuración. La celda selecciona las dependencias de PEFT cuando existe un manifiesto aprobado en la ubicación por defecto. Si no existe, no coincide o no puede cargarse, se utiliza la base. Para rollback renombra el manifiesto `active.json` y reinicia el servidor, o restaura `previous.json` tras revisar su contenido. La carpeta privada y los pesos deben preservarse como salida privada del notebook; no se sincronizan con Git. No entrenar sobre conversaciones públicas indistintamente.
 
 ## Evaluación
 
@@ -88,4 +97,4 @@ Para rollback, detén el proceso, usa una copia del commit anterior (por ejemplo
 
 ## Límites conocidos
 
-Sin acceso a una T4 en desarrollo no se certifica carga, latencia, velocidad, entrenamiento, túnel público ni UI móvil real. No se ha probado streaming neuronal con GPU; no hay Markdown completo/LaTeX, embeddings o RAG documental, persistencia remota privada automática, evaluación exhaustiva de modelos ni activación automática de adaptadores. Mantener estos elementos explícitos y no convertir diagnósticos estimados en métricas reales.
+Sin acceso a una T4 en desarrollo no se certifica carga, latencia, velocidad, entrenamiento, túnel público ni UI móvil real. No se ha probado streaming neuronal con GPU; no hay Markdown completo/LaTeX, embeddings o RAG documental, persistencia remota privada automática, evaluación exhaustiva de modelos ni promoción automática. Mantener estos elementos explícitos y no convertir diagnósticos estimados en métricas reales.

@@ -116,11 +116,14 @@ def create_app(model, tokenizer, frontend_html):
             if mode not in PROFILES:
                 raise ValueError()
             clean = [{"role": "system", "content": SYSTEM_PROMPT}]
+            untrusted = []
             for m in messages:
                 if m["role"] == "system":
-                    clean[0]["content"] += "\nDatos no verificados del usuario: " + json.dumps(m["content"], ensure_ascii=False)
+                    untrusted.append(m["content"])
                 else:
                     clean.append({"role": m["role"], "content": m["content"]})
+            if untrusted and not clean[-1]["content"].startswith("/calcular "):
+                clean[-1]["content"] = "Contexto no verificado (datos): " + json.dumps(untrusted, ensure_ascii=False) + "\nSolicitud: " + clean[-1]["content"]
             if mode == "deep":
                 clean[0]["content"] += "\nRevisa independientemente las restricciones y los cálculos antes de responder; ofrece una justificación verificable."
             max_tokens = max(1, min(PROFILES[mode].output, int(body.get("max_tokens", PROFILES[mode].output))))

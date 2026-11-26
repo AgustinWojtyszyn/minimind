@@ -64,5 +64,5 @@ def run(model, tokenizer, mode='balanced'):
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--model');p.add_argument('--cache',default='/kaggle/working/boitia-cache');p.add_argument('--mode',choices=['fast','balanced','deep'],default='balanced');p.add_argument('--output',default='boitia-evaluation.json');a=p.parse_args()
     from .hardware import load_engine
-    model,tok,_=load_engine(a.cache,preferred=a.model)
+    model,tok,_=load_engine(a.cache,preferred=a.model,load_approved=False)
     result=run(model,tok,a.mode);Path(a.output).write_text(json.dumps(result,ensure_ascii=False,indent=2));print(result['passed'],'/',result['total'])

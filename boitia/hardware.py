@@ -1,5 +1,6 @@
 """Conservative hardware selection; measured load plus smoke test is mandatory."""
 import gc
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,7 +25,7 @@ CANDIDATES = (
 def select_candidates(budgets, disk_gib, candidates=CANDIDATES):
     return [c for c in candidates if disk_gib >= c.disk_gib and sum(budgets) >= c.min_budget_gib]
 
-def load_engine(cache_dir, *, preferred=None):
+def load_engine(cache_dir, *, preferred=None, load_approved=True):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     from huggingface_hub import snapshot_download
@@ -65,12 +66,32 @@ def load_engine(cache_dir, *, preferred=None):
             mapping = getattr(model, 'hf_device_map', {})
             if any(str(v) in ('cpu','disk') for v in mapping.values()):
                 raise RuntimeError('Descarga CPU/disco no admitida en perfil público')
+            if load_approved:
+                from boitia.adapters import approved_for
+                try:
+                    approved = approved_for(c.model_id, os.environ.get('BOITIA_STATE','/kaggle/working/boitia-state'))
+                except (ValueError, OSError, KeyError):
+                    print('Manifiesto de adaptador inválido; se usará el modelo base.', flush=True)
+                    approved = None
+                if approved:
+                    try:
+                        from peft import PeftModel
+                        model=PeftModel.from_pretrained(model, approved, is_trainable=False).eval()
+                        print('Adaptador previamente aprobado recuperado.', flush=True)
+                    except Exception as exc:
+                        # Reload pristine base rather than reuse possibly mutated modules.
+                        print('No se pudo recuperar el adaptador; restaurando base:',type(exc).__name__,flush=True)
+                        model=None
+                    if model is None:
+                        gc.collect();torch.cuda.empty_cache()
+                        model=AutoModelForCausalLM.from_pretrained(source, **kwargs).eval()
             from boitia.inference import generate
             result = generate(model, tokenizer, [{'role':'system','content':'Responde brevemente.'},
                 {'role':'user','content':'¿Cuánto es dos más dos?'}], 'fast', 32)
             if not result.text.strip():
                 raise RuntimeError('Prueba neuronal vacía')
             print('Motor seleccionado:', c.model_id, '· salida de prueba:', repr(result.text), flush=True)
+            print('Prueba breve:', result.output_tokens, 'tokens en', round(result.elapsed,2), 's; VRAM asignada (GiB)', [round(torch.cuda.memory_allocated(i)/2**30,2) for i in range(torch.cuda.device_count())], flush=True)
             model._boitia_candidate = c
             return model, tokenizer, c
         except Exception as exc:

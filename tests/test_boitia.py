@@ -32,6 +32,12 @@ class Tests(unittest.TestCase):
         self.assertEqual(calculate("(0.1+0.2)/3"),"1/10")
         with self.assertRaises(ValueError):calculate("abs(5)")
         with self.assertRaises(ValueError):calculate("2**100")
+    def test_adapter_gate(self):
+        from boitia.adapters import compare
+        baseline={'results':[{'id':'a','passed':True},{'id':'b','passed':False}]}
+        self.assertFalse(compare(baseline,baseline)['eligible'])
+        self.assertTrue(compare(baseline,{'results':[{'id':'a','passed':True},{'id':'b','passed':True}]})['eligible'])
+        self.assertFalse(compare(baseline,{'results':[{'id':'a','passed':False},{'id':'b','passed':True}]})['eligible'])
     def test_curate(self):
         q,a='Pregunta legítima','Respuesta revisada'
         h=hashlib.sha256(json.dumps([q,a],ensure_ascii=False).encode()).hexdigest();row={'conversations':[{'role':'user','content':q},{'role':'assistant','content':a}]}

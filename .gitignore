@@ -10,3 +10,7 @@ boitia-backup*.json
 boitia-lessons*.jsonl
 boitia-adapters/
 .env
+
+boitia-state/
+adapter-evaluation*.json
+approved.txt
