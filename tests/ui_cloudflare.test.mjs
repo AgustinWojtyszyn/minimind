@@ -10,6 +10,7 @@ const env={AI:{run:async(id,input)=>{
   assert.equal(input.messages[0].content,SYSTEM_PROMPT);
   assert.equal(input.max_completion_tokens,384);
   assert.equal(input.stream,false);
+  assert.deepEqual(input.chat_template_kwargs,{enable_thinking:false});
   if(quota)throw Error('3036 account quota');
   return {choices:[{message:{content:'<think>hidden</think>4',reasoning_content:'not public'},finish_reason:'stop'}]};
 }}};
@@ -24,5 +25,5 @@ assert.equal((await send('https://evil.example')).status,403);assert.equal(calls
 assert.equal((await send(ORIGIN,{...body,model:'arbitrary'})).status,400);assert.equal(calls,0);
 const r=await send();assert.equal(r.status,200);const data=await r.json();
 assert.equal(data.choices[0].message.content,'4');assert(!JSON.stringify(data).includes('hidden'));assert.equal(calls,1);
-quota=true;assert.equal((await send()).status,429);
+quota=true;const exhausted=await send();assert.equal(exhausted.status,429);assert.equal((await exhausted.json()).error.provider_code,'3036');
 console.log('PASS: Cloudflare binding, prompt v'+PROMPT_VERSION+', origin, budget, no inference on health, quota error');

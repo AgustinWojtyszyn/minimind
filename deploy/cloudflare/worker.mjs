@@ -36,7 +36,7 @@ function validate(body){
   clean.unshift({role:'system',content:SYSTEM_PROMPT});
   const asked=Number.isInteger(body.max_tokens)?body.max_tokens:profiles[mode];
   return {messages:clean,max_completion_tokens:Math.max(1,Math.min(asked,profiles[mode])),
-          temperature:0.6,stream:false};
+          temperature:0.6,stream:false,chat_template_kwargs:{enable_thinking:false}};
 }
 // Best-effort isolate-local abuse throttle, not an account-wide quota or authentication.
 function allow(request){
@@ -52,10 +52,10 @@ function allow(request){
 function finalText(result){
   // Do not expose reasoning_content, metadata, or provider error bodies.
   const text=result?.choices?.[0]?.message?.content??result?.response;
-  if(typeof text!=='string')throw Error('Respuesta incompatible.');
-  if(/<\|channel\|>|<\|start\|>/i.test(text))throw Error('Formato interno no admitido.');
+  if(typeof text!=='string')throw Object.assign(Error('Respuesta incompatible.'),{kind:'output_format'});
+  if(/<\|channel\|>|<\|start\|>/i.test(text))throw Object.assign(Error('Formato interno no admitido.'),{kind:'output_format'});
   const answer=text.replace(/<think>[\s\S]*?<\/think>/gi,'').replace(/<think>[\s\S]*$/i,'').trim();
-  if(!answer)throw Error('Respuesta vacía.');
+  if(!answer)throw Object.assign(Error('Respuesta vacía.'),{kind:'empty_output'});
   return answer;
 }
 export default {
@@ -63,7 +63,7 @@ export default {
    const origin=request.headers.get('origin'),path=new URL(request.url).pathname;
    if(origin&&origin!==ORIGIN)return error(403,'Origen no permitido.',origin);
    if(request.method==='OPTIONS'&&path.startsWith(BASE+'/'))return new Response(null,{status:204,headers:headers(origin)});
-   if(request.method==='GET'&&path===BASE+'/health')return json({ready:Boolean(env.AI),busy:false,transport:'json',model:'Gemma 4 26B · Cloudflare',prompt_version:PROMPT_VERSION,parameter_billions_estimate:26},200,origin);
+   if(request.method==='GET'&&path===BASE+'/health')return json({ready:Boolean(env.AI),busy:false,transport:'json',model:'Gemma 4 26B · Cloudflare',prompt_version:PROMPT_VERSION,worker_revision:'cf-inference-2',parameter_billions_estimate:26},200,origin);
    if(request.method==='GET'&&path===BASE+'/models')return json({object:'list',data:[{id:'boitia',object:'model'}]},200,origin);
    if(request.method!=='POST'||path!==BASE+'/chat/completions')return error(404,'Ruta no disponible.',origin);
    if(origin!==ORIGIN)return error(403,'Usá la página oficial de BoitIA.',origin);
@@ -80,7 +80,10 @@ export default {
    }catch(e){
       const code=String(e?.code??'')+' '+String(e?.message??'');
       const quota=/3036|429|quota|rate.limit|allocation/i.test(code);
-      return error(quota?429:503,quota?'La cuota gratuita de Cloudflare está temporalmente agotada.':'El respaldo de Cloudflare no pudo responder.',origin);
+      const providerCode=code.match(/\b(?:300[0-9]|301[0-9]|302[0-9]|303[0-9]|304[0-9]|50[0-9]{2})\b/)?.[0]||null;
+      const stage=e?.kind==='output_format'||e?.kind==='empty_output'?e.kind:'provider_inference';
+      // Expose a bounded diagnostic, not the provider message, prompts or credentials.
+      return json({error:{message:quota?'La cuota gratuita de Cloudflare está temporalmente agotada.':'El respaldo de Cloudflare no pudo responder.',stage,provider_code:providerCode}},quota?429:503,origin);
    }
  }
 };
