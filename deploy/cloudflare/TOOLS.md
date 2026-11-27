@@ -29,3 +29,6 @@ Las herramientas se ejecutan en la página pública de GitHub Pages. No necesita
 ### Descarga de respuestas ya terminadas
 
 El botón PDF/Word/Excel aparece al finalizar una consulta que solicita el formato, incluso con frases como «dame un PDF», «haceme un recetario en PDF» o «pasame eso a PDF». Para una respuesta normal, se puede abrir «Descargar respuesta como archivo». No se hace una consulta adicional al motor. Si el modelo incluye una introducción errónea del tipo «no puedo generar un archivo» seguida de contenido, se descarta solo esa introducción de capacidad, no las restricciones legítimas ni el contenido.
+
+### Archivos v3
+Las solicitudes de documento muestran el botón de descarga antes y después del contenido. Se eliminan del texto presentado y del archivo las introducciones genéricas incorrectas sobre exportación cuando hay contenido real, incluso en históricos, sin modificar el historial almacenado. El PDF A4 distingue títulos y cuerpo, usa encabezado y pie con número de página. El pie del chat indica «archivos v3» cuando se ha cargado esta versión de las herramientas.

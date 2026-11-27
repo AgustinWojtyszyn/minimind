@@ -93,13 +93,34 @@ function xlsx(text){
  return zip({'[Content_Types].xml':types([['xl/workbook.xml','spreadsheetml.sheet.main'],['xl/worksheets/sheet1.xml','spreadsheetml.worksheet']]),'_rels/.rels':rootRels('xl/workbook.xml'),'xl/workbook.xml':X+'<workbook xmlns="'+ns+'" xmlns:r="'+office+'"><sheets><sheet name="BoitIA" sheetId="1" r:id="rId1"/></sheets></workbook>','xl/_rels/workbook.xml.rels':X+'<Relationships xmlns="'+relNS+'"><Relationship Id="rId1" Type="'+office+'/worksheet" Target="worksheets/sheet1.xml"/></Relationships>','xl/worksheets/sheet1.xml':X+'<worksheet xmlns="'+ns+'"><sheetData>'+sheet+'</sheetData></worksheet>'});
 }
 function pdf(text){
- // PDF standard Helvetica with WinAnsi; unsupported glyphs are replaced explicitly.
+ // Local, printable A4 layout with standard fonts; Spanish accents use WinAnsi.
  const extra='€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ',codes=[128,130,131,132,133,134,135,136,137,138,139,140,142,145,146,147,148,149,150,151,152,153,154,155,156,158,159];
  const str=s=>[...s].map(c=>{let n=c.codePointAt(0);if(n<32)return ' ';if(n>255)n=codes[extra.indexOf(c)]||63;return n>126?'\\'+n.toString(8).padStart(3,'0'):/[()\\]/.test(c)?'\\'+c:c}).join('');
- const lines=[];for(const line of plain(text).split(/\r?\n/)){let rest=line;while(rest.length>83){let k=rest.lastIndexOf(' ',83);if(k<1)k=83;lines.push(rest.slice(0,k));rest=rest.slice(k).trimStart()}lines.push(rest)}
- const pages=[];for(let i=0;i<lines.length;i+=43)pages.push(lines.slice(i,i+43));
- const objs=['<< /Type /Catalog /Pages 2 0 R >>','', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'];
- const ids=[];for(const page of pages){const id=objs.length+1;ids.push(id+' 0 R');const stream='BT /F1 11 Tf 15 TL 45 790 Td '+page.map(l=>'('+str(l)+') Tj T*').join('\n')+' ET\n';objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents '+(id+1)+' 0 R >>','<< /Length '+stream.length+' >>\nstream\n'+stream+'endstream')}
+ const strip=s=>plain(s).replace(/(?<!\*)\*([^*]+)\*(?!\*)/g,'$1').replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu,'').trim();
+ const wrap=(line,max)=>{const parts=[];let rest=line;while(rest.length>max){let k=rest.lastIndexOf(' ',max);if(k<1)k=max;parts.push(rest.slice(0,k));rest=rest.slice(k).trimStart()}parts.push(rest);return parts};
+ const pages=[];let page=[],y=764,titleSeen=false;
+ const write=(line,font,size,x,y,color)=> 'BT /'+font+' '+size+' Tf '+color+' rg 1 0 0 1 '+x+' '+y+' Tm ('+str(line)+') Tj ET\n';
+ const addPage=()=>{if(page.length)pages.push(page);page=[];y=764};
+ for(const raw of String(text).split(/\r?\n/)){
+   if(!raw.trim()){y-=8;continue}
+   if(/^\s*[-*_]{3,}\s*$/.test(raw)){if(y<80)addPage();page.push('0.82 0.87 0.84 RG 0.7 w 48 '+y+' m 547 '+y+' l S\n');y-=14;continue}
+   const heading=/^\s*#{1,6}\s+/.test(raw),title=heading&&!titleSeen;
+   if(heading)titleSeen=true;
+   const size=title?23:heading?15:11,step=title?29:heading?20:16,font=heading?'F2':'F1',color=heading?'0.10 0.30 0.23':'0.13 0.17 0.15';
+   if(heading)y-=title?2:7;
+   const lines=wrap(strip(raw),Math.floor(499/(size*0.72)));
+   // Keep headings with at least one following line where space permits.
+   if(heading&&y-lines.length*step<85)addPage();
+   for(const line of lines){if(y<67)addPage();page.push(write(line,font,size,48,y,color));y-=step}
+   if(heading)y-=5;
+ }
+ if(page.length||!pages.length)pages.push(page);
+ const objs=['<< /Type /Catalog /Pages 2 0 R >>','', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>'];
+ const ids=[];for(let i=0;i<pages.length;i++){
+   const id=objs.length+1;ids.push(id+' 0 R');
+   const stream='0.12 0.39 0.28 rg 0 827 595 15 re f\n'+write('BOITIA  /  DOCUMENTO','F2',9,48,804,'0.18 0.42 0.32')+pages[i].join('')+'0.82 0.87 0.84 RG 0.7 w 48 45 m 547 45 l S\n'+write('Generado con BoitIA','F1',9,48,28,'0.35 0.40 0.37')+write(String(i+1)+' / '+pages.length,'F1',9,510,28,'0.35 0.40 0.37');
+   objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents '+(id+1)+' 0 R >>','<< /Length '+stream.length+' >>\nstream\n'+stream+'endstream')
+ }
  objs[1]='<< /Type /Pages /Kids ['+ids.join(' ')+'] /Count '+ids.length+' >>';
  let out='%PDF-1.4\n',offsets=[0];for(let i=0;i<objs.length;i++){offsets.push(out.length);out+=(i+1)+' 0 obj\n'+objs[i]+'\nendobj\n'}const start=out.length;out+='xref\n0 '+offsets.length+'\n0000000000 65535 f \n'+offsets.slice(1).map(n=>String(n).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size '+offsets.length+' /Root 1 0 R >>\nstartxref\n'+start+'\n%%EOF\n';return out;
 }
@@ -164,7 +185,7 @@ async function prepare(q,file,notify){
  if(plan.formats.length)suffix+='\n[CAPACIDAD DE BOITIA: EXPORTACIÓN LOCAL ACTIVA] Esta interfaz convierte automáticamente tu respuesta terminada en un archivo descargable ('+plan.formats.join(', ')+') y muestra el botón de descarga. No necesitás crear bytes ni ejecutar código. Entregá ÚNICAMENTE el contenido final del documento, comenzando directamente con su título, sin disculpas, sin decir que no podés generar o entregar archivos y sin pedir que el usuario copie y pegue en otro programa. El botón lo crea la aplicación una vez finalizada la respuesta.';
  // Stay within current Worker character budget; preserve original question.
  if(q.length+suffix.length>10500)throw Error('La consulta y los datos juntos exceden el contexto disponible. Enviá un adjunto más corto o investigá por separado.');
- return {content:q+suffix,sources:sources.map(({title,url,kind})=>({title,url,kind})),formats:plan.formats,attachment:attached?{name:attached.name,note:attached.note}:null};
+ return {content:(plan.formats.length?'Redactá el contenido final para la herramienta de archivos de BoitIA. Empezá por el título del documento. Solicitud original: ':'')+q+suffix,sources:sources.map(({title,url,kind})=>({title,url,kind})),formats:plan.formats,attachment:attached?{name:attached.name,note:attached.note}:null};
 }
 // Remove only an unmistakable leading capability disclaimer when actual document content follows.
 function cleanDocument(text){
@@ -173,10 +194,17 @@ function cleanDocument(text){
  const first=parts[0];
  const preamble=/^(?:como (?:soy|modelo|un modelo|asistente|ia)|(?:lo siento[,.: ]*)?no puedo|lamentablemente)/i.test(first.trim());
  const denial=/no (?:puedo|tengo (?:la )?capacidad (?:de|para))\s+(?:generar|crear|entregar|adjuntar|proporcionar|enviar|descargar)\b/i.test(first)&&/\b(?:archivo(?:s)?|descargable|pdf|word|excel|documento)\b/i.test(first);
- if(!preamble||!denial)return s;
+ if(!preamble||!denial||/por (?:motivos de )?seguridad|no es seguro|no puedo ayudar|ilegal|dañin[oa]/i.test(first))return s;
  const rest=parts.slice(1);
- if(rest.length>1&&/^(?:acá|aquí|te dejo|a continuación|te presento|este es)(?:\s|:|,)/i.test(rest[0].trim())&&rest[0].length<180)rest.shift();
- if(rest.length&&/^[-*_]{3,}$/.test(rest[0].trim()))rest.shift();
+ // Remove only known generic export/copy instructions; never remove substantive content.
+ while(rest.length>1){
+   const lead=rest[0].trim();
+   const separator=/^[-*_]{3,}$/.test(lead);
+   const intro=/^(?:acá|aquí|te dejo|a continuación|te presento|este es)(?:\s|:|,)/i.test(lead)&&lead.length<180;
+   const copyAdvice=/^(?:si (?:usás|usas|utilizás|utilizas|querés|quieres)|(?:para|podés|puedes) (?:exportar|guardar|copiar|descargar))/i.test(lead)&&/\b(?:exportar|guardar|copi[aá]|peg[aá]|word|google docs|pdf)\b/i.test(lead)&&lead.length<650;
+   if(!separator&&!intro&&!copyAdvice)break;
+   rest.shift();
+ }
  const body=rest.join('\n\n').trim();
  return body.length>=20?body:s;
 }
