@@ -12,7 +12,7 @@ from boitia.config import SYSTEM_PROMPT
 def build(output):
     output.mkdir(parents=True, exist_ok=True)
     text = (ROOT / "frontend/index.html").read_text()
-    text = text.replace("</head>", '<link rel="manifest" href="./manifest.webmanifest"><link rel="apple-touch-icon" href="./icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes"></head>', 1)
+    text = text.replace("</head>", '<link rel="manifest" href="./manifest.webmanifest?v=2"><link rel="apple-touch-icon" href="./icon-192.png?v=2"><meta name="apple-mobile-web-app-capable" content="yes"></head>', 1)
     marker = "<script>"
     assert text.count(marker) == 1
     config = json.dumps(SYSTEM_PROMPT, ensure_ascii=False).replace("<", "\\u003c")

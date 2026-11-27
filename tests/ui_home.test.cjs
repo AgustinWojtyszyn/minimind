@@ -16,6 +16,6 @@ grid.children[2].fn();assert.equal(destination,'learning');
 grid.children[3].fn();assert.equal(destination,'memory');
 assert(html.includes('.suggestions{grid-template-columns:repeat(2,minmax(0,1fr))'));
 assert(html.includes('--bg:#101113'));assert(!html.includes('--bg:#101613'));
-assert(html.includes('<ellipse cx="24" cy="24"'));assert(!html.includes('M11 4v32'));
+assert(html.includes('class="boiti-tech-icon"'));assert(html.includes('data:image/png;base64,'));assert(!html.includes('<ellipse cx="24" cy="24"'));assert(docs.includes('class="boiti-tech-icon"'));
 assert(docs.includes('interfaz v6'));assert(docs.includes('tools.js?v=5'));
-console.log('PASS: original quadrants, actions, neutral theme, neural logo, delivered tools retained');
+console.log('PASS: original quadrants, actions, neutral theme, Boiti Tech logo, delivered tools retained');
