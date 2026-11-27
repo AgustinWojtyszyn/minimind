@@ -9,7 +9,7 @@ vm.runInContext(html.slice(html.indexOf('function renderChat('),html.indexOf('le
 const view=el('div');ctx.renderChat(view);
 const hero=view.children[0].children[0],grid=hero.children.find(x=>x.cls==='suggestions');
 assert.equal(hero.children.find(x=>x.tag==='h1').text,'Una mente en evolución.');
-assert.deepEqual(grid.children.map(x=>x.label),['Explorar una idea','Resolver un problema','Enseñar a BoitIA','Revisar recuerdos']);
+assert.deepEqual(grid.children.map(x=>x.label),['Explorar una idea','Resolver un problema','Enseñar a Boiti','Revisar recuerdos']);
 grid.children[0].fn();assert(focused&&prompt.value.includes('aprendizaje'));
 grid.children[1].fn();assert(prompt.value.includes('proyecto'));
 grid.children[2].fn();assert.equal(destination,'learning');

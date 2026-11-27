@@ -1,4 +1,4 @@
-/* BoitIA browser tools: no credentials, no arbitrary URL fetch, bounded inputs. */
+/* Boiti browser tools: no credentials, no arbitrary URL fetch, bounded inputs. */
 (function(root){
 'use strict';
 const MAX_TEXT=6500, MAX_FILE=8*1024*1024;
@@ -80,14 +80,14 @@ function pptx(text){
  const clr='<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>';
  files['ppt/slideMasters/slideMaster1.xml']=X+'<p:sldMaster'+ns+'><p:cSld><p:spTree>'+tree+'</p:spTree></p:cSld>'+clr+'<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst><p:txStyles/></p:sldMaster>';
  files['ppt/slideMasters/_rels/slideMaster1.xml.rels']=rel([['rId1','slideLayout','../slideLayouts/slideLayout1.xml'],['rId2','theme','../theme/theme1.xml']]);
- files['ppt/slideLayouts/slideLayout1.xml']=X+'<p:sldLayout'+ns+' type="blank" preserve="1"><p:cSld name="BoitIA"><p:spTree>'+tree+'</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>';
+ files['ppt/slideLayouts/slideLayout1.xml']=X+'<p:sldLayout'+ns+' type="blank" preserve="1"><p:cSld name="Boiti"><p:spTree>'+tree+'</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>';
  files['ppt/slideLayouts/_rels/slideLayout1.xml.rels']=rel([['rId1','slideMaster','../slideMasters/slideMaster1.xml']]);
  const colors={dk1:'152A21',lt1:'FFFFFF',dk2:'243C32',lt2:'F4F8F5',accent1:'258062',accent2:'B5F0D0',accent3:'BF8654',accent4:'657B93',accent5:'8D6D9F',accent6:'739374',hlink:'186B55',folHlink:'70558D'};
  const colorScheme=Object.entries(colors).map(([k,v])=>'<a:'+k+'><a:srgbClr val="'+v+'"/></a:'+k+'>').join('');
  const font='<a:latin typeface="Arial"/><a:ea typeface=""/><a:cs typeface=""/>';
  const fill='<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>';
  const line='<a:ln w="12700">'+fill+'<a:prstDash val="solid"/></a:ln>';
- files['ppt/theme/theme1.xml']=X+'<a:theme xmlns:a="'+ans+'" name="BoitIA"><a:themeElements><a:clrScheme name="BoitIA">'+colorScheme+'</a:clrScheme><a:fontScheme name="BoitIA"><a:majorFont>'+font+'</a:majorFont><a:minorFont>'+font+'</a:minorFont></a:fontScheme><a:fmtScheme name="BoitIA"><a:fillStyleLst>'+fill.repeat(3)+'</a:fillStyleLst><a:lnStyleLst>'+line.repeat(3)+'</a:lnStyleLst><a:effectStyleLst>'+'<a:effectStyle><a:effectLst/></a:effectStyle>'.repeat(3)+'</a:effectStyleLst><a:bgFillStyleLst>'+fill.repeat(3)+'</a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>';
+ files['ppt/theme/theme1.xml']=X+'<a:theme xmlns:a="'+ans+'" name="Boiti"><a:themeElements><a:clrScheme name="Boiti">'+colorScheme+'</a:clrScheme><a:fontScheme name="Boiti"><a:majorFont>'+font+'</a:majorFont><a:minorFont>'+font+'</a:minorFont></a:fontScheme><a:fmtScheme name="Boiti"><a:fillStyleLst>'+fill.repeat(3)+'</a:fillStyleLst><a:lnStyleLst>'+line.repeat(3)+'</a:lnStyleLst><a:effectStyleLst>'+'<a:effectStyle><a:effectLst/></a:effectStyle>'.repeat(3)+'</a:effectStyleLst><a:bgFillStyleLst>'+fill.repeat(3)+'</a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>';
  return zip(files);
 }
 function htmlFile(text){
@@ -112,7 +112,7 @@ function htmlFile(text){
   while(stack.length)safe+='</'+stack.pop()+'>';
   escaped=safe;
  }
- return '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; style-src &apos;unsafe-inline&apos;; base-uri &apos;none&apos;; form-action &apos;none&apos;"><title>BoitIA · Documento</title><style>body{font:16px/1.65 system-ui;color:#18362a;background:#f4f8f5;margin:0}main{max-width:820px;margin:5vh auto;padding:32px;background:white;border-radius:20px}h1,h2,h3{color:#20664b;line-height:1.25}p{white-space:pre-wrap;overflow-wrap:anywhere}header{font-size:12px;letter-spacing:2px;color:#47816b}</style></head><body><main><header>BOITIA / DOCUMENTO</header>'+escaped+'</main></body></html>';
+ return '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; style-src &apos;unsafe-inline&apos;; base-uri &apos;none&apos;; form-action &apos;none&apos;"><title>Boiti · Documento</title><style>body{font:16px/1.65 system-ui;color:#18362a;background:#f4f8f5;margin:0}main{max-width:820px;margin:5vh auto;padding:32px;background:white;border-radius:20px}h1,h2,h3{color:#20664b;line-height:1.25}p{white-space:pre-wrap;overflow-wrap:anywhere}header{font-size:12px;letter-spacing:2px;color:#47816b}</style></head><body><main><header>BOITIA / DOCUMENTO</header>'+escaped+'</main></body></html>';
 }
 function vectorImage(text){
  // Declarative JSON scene only, no arbitrary SVG/HTML, scripts or external resources.
@@ -286,7 +286,7 @@ function xlsx(text){
  const rows=tableRows(text);
  const sheet=rows.map((r,i)=>'<row r="'+(i+1)+'">'+r.slice(0,50).map((v,j)=>{const addr=col(j)+(i+1),s=String(v);return /^-?(?:\d{1,12})(?:\.\d{1,8})?$/.test(s)&&!/^0\d/.test(s)?'<c r="'+addr+'"><v>'+s+'</v></c>':'<c r="'+addr+'" t="inlineStr"><is><t xml:space="preserve">'+xml(s)+'</t></is></c>'}).join('')+'</row>').join('');
  const ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
- return zip({'[Content_Types].xml':types([['xl/workbook.xml','spreadsheetml.sheet.main'],['xl/worksheets/sheet1.xml','spreadsheetml.worksheet']]),'_rels/.rels':rootRels('xl/workbook.xml'),'xl/workbook.xml':X+'<workbook xmlns="'+ns+'" xmlns:r="'+office+'"><sheets><sheet name="BoitIA" sheetId="1" r:id="rId1"/></sheets></workbook>','xl/_rels/workbook.xml.rels':X+'<Relationships xmlns="'+relNS+'"><Relationship Id="rId1" Type="'+office+'/worksheet" Target="worksheets/sheet1.xml"/></Relationships>','xl/worksheets/sheet1.xml':X+'<worksheet xmlns="'+ns+'"><sheetData>'+sheet+'</sheetData></worksheet>'});
+ return zip({'[Content_Types].xml':types([['xl/workbook.xml','spreadsheetml.sheet.main'],['xl/worksheets/sheet1.xml','spreadsheetml.worksheet']]),'_rels/.rels':rootRels('xl/workbook.xml'),'xl/workbook.xml':X+'<workbook xmlns="'+ns+'" xmlns:r="'+office+'"><sheets><sheet name="Boiti" sheetId="1" r:id="rId1"/></sheets></workbook>','xl/_rels/workbook.xml.rels':X+'<Relationships xmlns="'+relNS+'"><Relationship Id="rId1" Type="'+office+'/worksheet" Target="worksheets/sheet1.xml"/></Relationships>','xl/worksheets/sheet1.xml':X+'<worksheet xmlns="'+ns+'"><sheetData>'+sheet+'</sheetData></worksheet>'});
 }
 function pdf(text){
  // Local, printable A4 layout with standard fonts; Spanish accents use WinAnsi.
@@ -314,7 +314,7 @@ function pdf(text){
  const objs=['<< /Type /Catalog /Pages 2 0 R >>','', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>'];
  const ids=[];for(let i=0;i<pages.length;i++){
    const id=objs.length+1;ids.push(id+' 0 R');
-   const stream='0.12 0.39 0.28 rg 0 827 595 15 re f\n'+write('BOITIA  /  DOCUMENTO','F2',9,48,804,'0.18 0.42 0.32')+pages[i].join('')+'0.82 0.87 0.84 RG 0.7 w 48 45 m 547 45 l S\n'+write('Generado con BoitIA','F1',9,48,28,'0.35 0.40 0.37')+write(String(i+1)+' / '+pages.length,'F1',9,510,28,'0.35 0.40 0.37');
+   const stream='0.12 0.39 0.28 rg 0 827 595 15 re f\n'+write('BOITIA  /  DOCUMENTO','F2',9,48,804,'0.18 0.42 0.32')+pages[i].join('')+'0.82 0.87 0.84 RG 0.7 w 48 45 m 547 45 l S\n'+write('Generado con Boiti','F1',9,48,28,'0.35 0.40 0.37')+write(String(i+1)+' / '+pages.length,'F1',9,510,28,'0.35 0.40 0.37');
    objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents '+(id+1)+' 0 R >>','<< /Length '+stream.length+' >>\nstream\n'+stream+'endstream')
  }
  objs[1]='<< /Type /Pages /Kids ['+ids.join(' ')+'] /Count '+ids.length+' >>';
@@ -325,7 +325,7 @@ function chart(text){
  if(!values.length)throw Error('Para crear un gráfico hace falta una tabla con etiquetas y valores numéricos.');
  const W=800,H=65+values.length*34,max=Math.max(1,...values.map(x=>Math.abs(x[1])));
  const body=values.map(([label,n],i)=>{const y=45+i*34,w=Math.abs(n)/max*230,x=n<0?470-w:470;return '<text x="15" y="'+(y+15)+'" font-size="13">'+xml(label.slice(0,34))+'</text><rect x="'+x+'" y="'+y+'" width="'+w+'" height="20" rx="3" fill="'+(n<0?'#c15c54':'#287c5b')+'"/><text x="715" y="'+(y+15)+'" font-size="13">'+xml(n)+'</text>'}).join('');
- return '<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'"><rect width="100%" height="100%" fill="white"/><g font-family="sans-serif" fill="#17251d"><text x="15" y="24" font-size="18" font-weight="bold">BoitIA · gráfico de datos</text><path d="M470 33 V'+(H-15)+'" stroke="#999"/>'+body+'</g></svg>';
+ return '<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'"><rect width="100%" height="100%" fill="white"/><g font-family="sans-serif" fill="#17251d"><text x="15" y="24" font-size="18" font-weight="bold">Boiti · gráfico de datos</text><path d="M470 33 V'+(H-15)+'" stroke="#999"/>'+body+'</g></svg>';
 }
 async function unzipPart(bytes,name){
  const v=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);let end=-1;
@@ -388,7 +388,7 @@ async function prepare(q,file,notify){
  if(plan.formats.length&&!plan.formats.includes('image'))suffix+='\n[CAPACIDAD DE BOITIA: EXPORTACIÓN LOCAL ACTIVA] Esta interfaz convierte automáticamente tu respuesta terminada en un archivo descargable ('+plan.formats.join(', ')+') y muestra el botón de descarga. No necesitás crear bytes ni ejecutar código. Entregá ÚNICAMENTE el contenido final del documento, comenzando directamente con su título, sin disculpas, sin decir que no podés generar o entregar archivos y sin pedir que el usuario copie y pegue en otro programa. El botón lo crea la aplicación una vez finalizada la respuesta.';
  // Stay within current Worker character budget; preserve original question.
  if(q.length+suffix.length>10500)throw Error('La consulta y los datos juntos exceden el contexto disponible. Enviá un adjunto más corto o investigá por separado.');
- return {content:(plan.formats.length&&!plan.formats.includes('image')?'Redactá el contenido final para la herramienta de archivos de BoitIA. Empezá por el título del documento. Solicitud original: ':'')+q+suffix,sources:sources.map(({title,url,kind})=>({title,url,kind})),formats:plan.formats,fileOnly:pdfOnly(q),attachment:attached?{name:attached.name,note:attached.note}:null};
+ return {content:(plan.formats.length&&!plan.formats.includes('image')?'Redactá el contenido final para la herramienta de archivos de Boiti. Empezá por el título del documento. Solicitud original: ':'')+q+suffix,sources:sources.map(({title,url,kind})=>({title,url,kind})),formats:plan.formats,fileOnly:pdfOnly(q),attachment:attached?{name:attached.name,note:attached.note}:null};
 }
 // Remove only an unmistakable leading capability disclaimer when actual document content follows.
 function cleanDocument(text){
