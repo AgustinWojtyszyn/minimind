@@ -131,3 +131,22 @@ incluye los conocimientos locales (puede contener información privada).
 Los límites de esta versión son 20 documentos, 100.000 caracteres por documento,
 500.000 caracteres totales, 60 páginas de PDF de texto y hasta 500 filas de la primera hoja
 de XLSX. La extracción de documentos y estadísticas no ejecuta macros o fórmulas.
+
+### Entrenamiento neuronal: ejecución privada y versionada
+
+El entrenamiento QLoRA requiere un dataset JSONL autorizado y la lista de hashes de los
+pares pregunta/respuesta revisados por el propietario. No se incorporan automáticamente
+conversaciones ni documentos aprendidos al dataset. Cada ejecución exige un directorio
+nuevo (por ejemplo, una versión bajo /kaggle/working) y guarda un manifiesto de modelos,
+datos y configuración, una evaluación previa, checkpoints y un reporte con el digest
+del adaptador. La reanudación verifica esos datos y selecciona el checkpoint completo
+más reciente. El entrenamiento multi-GPU es optativo mediante torchrun con dos procesos,
+cada uno con una réplica NF4 en una GPU; no aumenta la VRAM disponible para un modelo
+individual. La viabilidad y el rendimiento en dos T4 deben medirse en Kaggle.
+El mejor modelo de validación y la detención temprana (para múltiples épocas) ayudan
+a reducir sobreajuste, pero la promoción requiere además la evaluación independiente
+existente y aprobación explícita; no se activa ningún candidato automáticamente.
+El comando de rollback verifica el digest del adaptador anterior antes de cambiar el
+puntero activo. Para persistencia entre sesiones Kaggle deben conservarse los outputs
+privados de la ejecución — los checkpoints locales no garantizan persistencia tras
+perder la sesión. No se ha ejecutado ni certificado entrenamiento T4 en esta iteración.

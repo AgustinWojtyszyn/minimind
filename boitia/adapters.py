@@ -54,6 +54,27 @@ def promote(report, state_dir):
     temp.write_text(json.dumps(data,indent=2));temp.replace(path);return path
 
 
+def rollback(state_dir):
+    """Restore the previous verified adapter; no implicit model changes."""
+    directory=Path(state_dir)
+    previous=directory/'previous.json'
+    active=directory/'active.json'
+    if not previous.is_file():
+        raise ValueError('No hay un adaptador anterior.')
+    data=json.loads(previous.read_text())
+    if data['decision'].get('eligible') is not True or adapter_digest(data['adapter'])!=data['digest']:
+        raise ValueError('El adaptador anterior no está verificado.')
+    old=active.read_text() if active.exists() else None
+    temp=directory/'active.tmp'
+    temp.write_text(json.dumps(data,indent=2))
+    temp.replace(active)
+    if old is not None:
+        previous.write_text(old)
+    else:
+        previous.unlink()
+    return active
+
+
 def approved_for(model_id,state_dir):
     path=Path(state_dir)/'active.json'
     if not path.exists(): return None
@@ -68,6 +89,8 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser();sub=parser.add_subparsers(dest='action',required=True)
     e=sub.add_parser('evaluate');e.add_argument('--model',required=True);e.add_argument('--adapter',required=True);e.add_argument('--output',required=True);e.add_argument('--cache',default='/kaggle/working/boitia-cache')
     p=sub.add_parser('promote');p.add_argument('--report',required=True);p.add_argument('--state',default='/kaggle/working/boitia-state')
+    r=sub.add_parser('rollback');r.add_argument('--state',default='/kaggle/working/boitia-state')
     a=parser.parse_args()
     if a.action=='evaluate': print(evaluate(a.model,a.adapter,a.cache,a.output))
-    else: print(promote(a.report,a.state))
+    elif a.action=='promote': print(promote(a.report,a.state))
+    else: print(rollback(a.state))
