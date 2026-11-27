@@ -56,7 +56,7 @@ assert.throws(()=>t.chart('| a | b |\n|---|---|\n| c | |'),/tabla/);
  assert(attachment.content.includes('Texto adjunto'));assert.equal(attachment.attachment.name,'datos.txt');
  assert(!Object.hasOwn(attachment.attachment,'text'));
  const html=fs.readFileSync('docs/index.html','utf8');
- assert(html.includes('<script src="tools.js?v=4"></script>'));
+ assert(html.includes('<script src="tools.js?v=5"></script>'));
  assert(html.includes('toolData=await globalThis.BoitiaTools.prepare'));
  assert(html.includes('if(err.toolError)'));
  console.log('PASS: downloads PDF/DOCX/XLSX/SVG, CSV, research routing, attachment, no formulas executed');
