@@ -163,3 +163,10 @@ prompts, respuestas ni credenciales. La revisión 7 del Worker emite eventos est
 de inferencia con duración, estado y tokens si el proveedor los entrega, sin texto de
 conversación. La observabilidad persistente no se activa por defecto para evitar cargos;
 la consulta global de consumo requiere acceso autorizado al panel de Cloudflare.
+
+`scripts/cloudflare_usage.py` consulta el dataset de analíticas de inferencia de la
+cuenta mediante la API GraphQL autenticada. Se ejecuta únicamente fuera de la interfaz
+pública, con OAuth Wrangler autorizado o token ya presente en el entorno. Separa
+cuota diaria, consumo, tokens, errores y tiempo medio de inferencia, y distingue el
+equivalente de cómputo de los cargos de facturación reales. No contiene credenciales,
+no escribe en la cuenta y no registra resultados privados en el repositorio.
