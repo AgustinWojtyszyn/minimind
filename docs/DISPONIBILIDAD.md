@@ -150,3 +150,16 @@ El comando de rollback verifica el digest del adaptador anterior antes de cambia
 puntero activo. Para persistencia entre sesiones Kaggle deben conservarse los outputs
 privados de la ejecución — los checkpoints locales no garantizan persistencia tras
 perder la sesión. No se ha ejecutado ni certificado entrenamiento T4 en esta iteración.
+
+### Telemetría y administración técnica
+
+El servidor Python ofrece GET /api/boitia/v1/admin/metrics solo si el propietario
+configura un secreto BOITIA_ADMIN_TOKEN de al menos 32 caracteres en el entorno.
+Requiere Authorization: Bearer y permanece fuera de la interfaz pública. Los contadores
+diarios y mensuales UTC son de la instancia desde su inicio; no son métricas globales
+persistentes. Incluyen generaciones admitidas, errores, cancelaciones, tokens conocidos y
+latencia; las cuotas y costos desconocidos se devuelven como null. No se guardan IP,
+prompts, respuestas ni credenciales. La revisión 7 del Worker emite eventos estructurados
+de inferencia con duración, estado y tokens si el proveedor los entrega, sin texto de
+conversación. La observabilidad persistente no se activa por defecto para evitar cargos;
+la consulta global de consumo requiere acceso autorizado al panel de Cloudflare.

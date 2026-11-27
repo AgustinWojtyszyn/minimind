@@ -5,9 +5,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from boitia.config import SYSTEM_PROMPT, PROFILES, MAX_BODY, MAX_CHARS, PROMPT_VERSION
 from boitia.inference import respond
+from boitia.metrics import Metrics
 from boitia.hardware import load_engine
 import collections
 import ipaddress
+import hmac
 import json
 import os
 import pathlib
@@ -60,6 +62,11 @@ def create_app(model, tokenizer, frontend_html, *, responder=None, model_info=No
     ip_times = {}
     jobs = {}
     jobs_lock = threading.Lock()
+    usage_metrics = Metrics()
+    admin_secret = os.environ.get("BOITIA_ADMIN_TOKEN", "")
+    if len(admin_secret) < 32:
+        admin_secret = ""
+
 
     def prune_jobs():
         now = time.monotonic()
@@ -141,6 +148,18 @@ def create_app(model, tokenizer, frontend_html, *, responder=None, model_info=No
                 "prompt_version": PROMPT_VERSION, "profiles": {k: {"context":v.context,"max_tokens":v.output} for k,v in PROFILES.items()},
                 "gpu_count": gpu_count}
 
+    @app.get(BASE + "/admin/metrics")
+    def private_metrics(request: Request):
+        if not admin_secret:
+            return reject(404, "Ruta no disponible.")
+        supplied = request.headers.get("authorization", "")
+        if not hmac.compare_digest(supplied.encode(), ("Bearer " + admin_secret).encode()):
+            return reject(401, "Autenticación requerida.")
+        # No prompts, IP addresses, conversation content, jobs or credentials.
+        return JSONResponse({**usage_metrics.snapshot(), "engine": health(),
+                             "usage_estimated": bool((model_info or {}).get("usage_estimated", False))},
+                            headers={"Cache-Control": "no-store"})
+
     @app.post(BASE + "/chat/completions")
     async def complete(request: Request):
         # Same-origin by default; one explicitly configured portable origin only.
@@ -199,7 +218,7 @@ def create_app(model, tokenizer, frontend_html, *, responder=None, model_info=No
             gpu_lock.release()
             return reject(429, "Límite temporal de consultas. Reintentá en un minuto.")
 
-        def work(on_text=None, cancel=None):
+        def generate(on_text=None, cancel=None):
             try:
                 query = clean[-1]["content"]
                 if query.startswith("/calcular "):
@@ -220,6 +239,15 @@ def create_app(model, tokenizer, frontend_html, *, responder=None, model_info=No
                 raise
             finally:
                 gpu_lock.release()
+
+        def work(on_text=None, cancel=None):
+            try:
+                result = generate(on_text, cancel)
+                usage_metrics.record("cancelled" if cancel is not None and cancel.is_set() else "completed", result)
+                return result
+            except Exception:
+                usage_metrics.record("cancelled" if cancel is not None and cancel.is_set() else "errors")
+                raise
 
         def metrics(result):
             return {"generation_seconds": result.elapsed,

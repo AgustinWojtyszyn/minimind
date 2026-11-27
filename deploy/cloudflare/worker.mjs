@@ -83,11 +83,18 @@ function visibleText(){
     }
   };
 }
-function streamResponse(source,origin){
+function recordMetric(id,started,status,characters=0,usage=null,providerCode=null){
+  const integer=n=>Number.isSafeInteger(n)&&n>=0?n:null;
+  console.info(JSON.stringify({event:'boiti_inference',request_id:id,provider:'cloudflare',model:MODEL,
+    duration_ms:Date.now()-started,status,output_characters:characters,provider_code:providerCode,
+    input_tokens:integer(usage?.prompt_tokens),output_tokens:integer(usage?.completion_tokens)}));
+}
+function streamResponse(source,origin,metric){
   const reader=source.getReader(),decoder=new TextDecoder(),encoder=new TextEncoder(),filter=visibleText();
   const frame=data=>encoder.encode('data: '+JSON.stringify(data)+'\n\n');
   const delta=content=>frame({choices:[{index:0,delta:{content},finish_reason:null}]});
-  let cancelled=false;
+  let cancelled=false,recorded=false,characters=0,usage=null;
+  const record=status=>{if(!recorded){recorded=true;metric?.(status,characters,usage)}};
   async function* events(){
     let buffer='',finish=null,hasText=false,ended=false;
     try{
@@ -105,11 +112,12 @@ function streamResponse(source,origin){
           if(payload==='[DONE]'){ended=true;break}
           const data=JSON.parse(payload);
           if(data.error||data.success===false)throw Error('Error del proveedor.');
+          if(data.usage)usage=data.usage;
           const choice=data.choices?.[0];
           const chunk=choice?.delta?.content??data.response;
           if(typeof chunk==='string'){
             const text=filter(chunk);
-            if(text){hasText=hasText||Boolean(text.trim());yield delta(text)}
+            if(text){characters+=text.length;hasText=hasText||Boolean(text.trim());yield delta(text)}
           }
           if(choice?.finish_reason||data.finish_reason)finish=choice?.finish_reason||data.finish_reason;
         }
@@ -119,11 +127,13 @@ function streamResponse(source,origin){
       if(!ended&&!finish)throw Error('Generación interrumpida.');
       if(finish&& !['stop','length'].includes(finish))throw Error('Generación interrumpida.');
       const tail=filter('',true);
-      if(tail){hasText=hasText||Boolean(tail.trim());yield delta(tail)}
+      if(tail){characters+=tail.length;hasText=hasText||Boolean(tail.trim());yield delta(tail)}
       if(!hasText)throw Error('Respuesta vacía.');
+      record(finish==='length'?'length':'stop');
       yield frame({choices:[{index:0,delta:{},finish_reason:finish||'stop'}]});
       yield encoder.encode('data: [DONE]\n\n');
     }catch{
+      record(cancelled?'cancelled':'error');
       if(!cancelled)yield frame({error:{message:'El respaldo de Cloudflare interrumpió la generación.'}});
     }finally{await reader.cancel().catch(()=>{})}
   }
@@ -134,7 +144,7 @@ function streamResponse(source,origin){
       if(cancelled)return;
       if(done)controller.close();else controller.enqueue(value);
     },
-    async cancel(){cancelled=true;await reader.cancel().catch(()=>{});await iterator.return()}
+    async cancel(){cancelled=true;record('cancelled');await reader.cancel().catch(()=>{});await iterator.return()}
   }),{headers:{...headers(origin),'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-store, no-transform'}});
 }
 export default {
@@ -142,7 +152,7 @@ export default {
    const origin=request.headers.get('origin'),path=new URL(request.url).pathname;
    if(origin&&origin!==ORIGIN)return error(403,'Origen no permitido.',origin);
    if(request.method==='OPTIONS'&&path.startsWith(BASE+'/'))return new Response(null,{status:204,headers:headers(origin)});
-   if(request.method==='GET'&&path===BASE+'/health')return json({ready:Boolean(env.AI),busy:false,transport:'sse',json_compatible:true,model:'Gemma 4 26B · Cloudflare',prompt_version:PROMPT_VERSION,worker_revision:'cf-inference-6',max_tokens:profiles,parameter_billions_estimate:26},200,origin);
+   if(request.method==='GET'&&path===BASE+'/health')return json({ready:Boolean(env.AI),busy:false,transport:'sse',json_compatible:true,model:'Gemma 4 26B · Cloudflare',prompt_version:PROMPT_VERSION,worker_revision:'cf-inference-7',max_tokens:profiles,parameter_billions_estimate:26},200,origin);
    if(request.method==='GET'&&path===BASE+'/models')return json({object:'list',data:[{id:'boitia',object:'model'}]},200,origin);
    if(request.method!=='POST'||path!==BASE+'/chat/completions')return error(404,'Ruta no disponible.',origin);
    if(origin!==ORIGIN)return error(403,'Usá la página oficial de BoitIA.',origin);
@@ -151,19 +161,22 @@ export default {
    let input;
    try{input=validate(await readBody(request))}catch(e){return error(400,String(e.message).slice(0,200),origin)}
    if(!allow(request))return error(429,'Límite temporal de solicitudes.',origin);
+   const started=Date.now(),requestId=crypto.randomUUID();
    try{
       const result=await env.AI.run(MODEL,input);
-      if(input.stream&&typeof result?.getReader==='function')return streamResponse(result,origin);
+      if(input.stream&&typeof result?.getReader==='function')return streamResponse(result,origin,(status,characters,usage)=>recordMetric(requestId,started,status,characters,usage));
       const text=finalText(result);
       const reason=result?.choices?.[0]?.finish_reason;
+      recordMetric(requestId,started,reason==='length'?'length':'stop',text.length,result?.usage);
       return json({object:'chat.completion',model:'boitia',engine:MODEL,choices:[{index:0,message:{role:'assistant',content:text},finish_reason:reason==='length'?'length':'stop'}]},200,origin);
    }catch(e){
       const code=String(e?.code??'')+' '+String(e?.message??'');
-      const quota=/3036|429|quota|rate.limit|allocation/i.test(code);
+      const quota=/3036|429|quota|rate.limit|allocation|3040/i.test(code);
       const providerCode=code.match(/\b(?:300[0-9]|301[0-9]|302[0-9]|303[0-9]|304[0-9]|50[0-9]{2})\b/)?.[0]||null;
       const stage=e?.kind==='output_format'||e?.kind==='empty_output'?e.kind:'provider_inference';
+      recordMetric(requestId,started,providerCode==='3036'?'daily_quota':quota?'temporary_limit':'error',0,null,providerCode);
       // Expose a bounded diagnostic, not the provider message, prompts or credentials.
-      return json({error:{message:quota?'La cuota gratuita de Cloudflare está temporalmente agotada.':'El respaldo de Cloudflare no pudo responder.',stage,provider_code:providerCode}},quota?429:503,origin);
+      return json({error:{message:providerCode==='3036'?'La cuota diaria gratuita de Cloudflare se agotó.':quota?'Cloudflare tiene una limitación temporal.':'El motor de Cloudflare no pudo responder.',stage,provider_code:providerCode}},quota?429:503,origin);
    }
  }
 };
