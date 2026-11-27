@@ -15,7 +15,7 @@ def build(output):
     marker = "<script>"
     assert text.count(marker) == 1
     config = json.dumps(SYSTEM_PROMPT, ensure_ascii=False).replace("<", "\\u003c")
-    text = text.replace(marker, '<script src="client.js"></script>\n<script src="tools.js"></script>\n<script>window.BOITIA_LOCAL_SYSTEM='+config+';</script>\n'+marker, 1)
+    text = text.replace(marker, '<script src="client.js"></script>\n<script src="tools.js?v=2"></script>\n<script>window.BOITIA_LOCAL_SYSTEM='+config+';</script>\n'+marker, 1)
     (output / 'index.html').write_text(text)
     for name in ('client.js','local-worker.js','tools.js'):
         shutil.copyfile(ROOT/'frontend/portable'/name, output/name)

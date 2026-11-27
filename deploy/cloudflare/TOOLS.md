@@ -25,3 +25,7 @@ Las herramientas se ejecutan en la página pública de GitHub Pages. No necesita
 ## Pruebas
 
 \`node tests/ui_tools.test.cjs\` verifica formatos, escapes, estructura, fuentes simuladas, selección automática y adjuntos. Validar además el flujo real desde la página publicada, especialmente CORS, importación PDF.js y apertura de los archivos en aplicaciones de escritorio.
+
+### Descarga de respuestas ya terminadas
+
+El botón PDF/Word/Excel aparece al finalizar una consulta que solicita el formato, incluso con frases como «dame un PDF», «haceme un recetario en PDF» o «pasame eso a PDF». Para una respuesta normal, se puede abrir «Descargar respuesta como archivo». No se hace una consulta adicional al motor. Si el modelo incluye una introducción errónea del tipo «no puedo generar un archivo» seguida de contenido, se descarta solo esa introducción de capacidad, no las restricciones legítimas ni el contenido.
