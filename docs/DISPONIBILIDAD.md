@@ -170,3 +170,11 @@ pública, con OAuth Wrangler autorizado o token ya presente en el entorno. Separ
 cuota diaria, consumo, tokens, errores y tiempo medio de inferencia, y distingue el
 equivalente de cómputo de los cargos de facturación reales. No contiene credenciales,
 no escribe en la cuenta y no registra resultados privados en el repositorio.
+
+El generador `scripts/prepare_kaggle_training.py` prepara localmente un notebook privado
+para una revisión Git exacta y un dataset privado autorizado ya montable en Kaggle.
+Requiere los archivos training.jsonl y approved.sha256; no acepta conversaciones
+automáticamente. No consume GPU ni sube datos hasta que el operador autenticado
+verifica la cuota y ejecuta el CLI oficial de Kaggle con un timeout explícito. El modelo
+y número de GPU se eligen antes de lanzar y se validan en el notebook. La visibilidad
+privada y la existencia efectiva del dataset deben verificarse en la cuenta.
