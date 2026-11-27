@@ -32,3 +32,8 @@ El botón PDF/Word/Excel aparece al finalizar una consulta que solicita el forma
 
 ### Archivos v3
 Las solicitudes de documento muestran el botón de descarga antes y después del contenido. Se eliminan del texto presentado y del archivo las introducciones genéricas incorrectas sobre exportación cuando hay contenido real, incluso en históricos, sin modificar el historial almacenado. El PDF A4 distingue títulos y cuerpo, usa encabezado y pie con número de página. El pie del chat indica «archivos v3» cuando se ha cargado esta versión de las herramientas.
+
+### Archivos v4 — entrega exclusiva del PDF
+Cuando una consulta solicita solamente un PDF, el chat muestra «Preparando tu PDF…» durante la generación y luego una confirmación breve y el botón de descarga. El contenido completo se almacena una sola vez en el mensaje para reconstruir el archivo sin consumir más inferencia; se materializa localmente en memoria. Las fuentes, si existen, quedan dentro del documento. Se admite la descarga parcial identificada como tal. Las consultas normales y las solicitudes explícitas que incluyen tanto PDF como texto en el chat conservan la vista habitual.
+
+En las siguientes consultas, los PDF anteriores se representan en el historial enviado al modelo con una nota breve y su título, salvo cuando el usuario hace una referencia explícita al documento anterior o solicita modificarlo. Esto reduce tokens de entrada; el costo de generar el contenido original del PDF sigue existiendo. No se borra el historial ni el contenido de los archivos.

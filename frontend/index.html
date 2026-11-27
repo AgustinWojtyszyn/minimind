@@ -188,7 +188,7 @@ function safeBody(text,rich=true){
 }
 function relevantMemories(query){const words=t=>new Set((t.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu)||[]).filter(x=>x.length>2));const q=words(query);return state.memories.map(m=>({text:m.text,score:[...words(m.text)].filter(x=>q.has(x)).length})).filter(m=>m.score>0).sort((a,b)=>b.score-a.score).slice(0,5).map(m=>m.text.slice(0,600))}
 function importBackup(){const input=el('input');input.type='file';input.accept='.json,application/json';input.onchange=async()=>{try{const file=input.files[0];if(!file||file.size>10*1024*1024)throw Error('Archivo demasiado grande');const data=JSON.parse(await file.text());if(!['chats','memories','lessons'].every(k=>Array.isArray(data[k])))throw Error('Formato inválido');const string=x=>typeof x==='string';const validChat=c=>c&&string(c.title)&&Array.isArray(c.messages)&&c.messages.every(m=>m&&['user','assistant'].includes(m.role)&&string(m.content));const validMemory=m=>m&&string(m.text);const validLesson=m=>m&&string(m.question)&&string(m.answer);if(!data.chats.every(validChat)||!data.memories.every(validMemory)||!data.lessons.every(validLesson))throw Error('Registros inválidos');for(const [k,fields] of [['chats',['title','messages']],['memories',['text']],['lessons',['question','answer']]]){for(const x of data[k]){const clean=Object.fromEntries(fields.map(f=>[f,x[f]]));if(!state[k].some(y=>fields.every(f=>JSON.stringify(y[f])===JSON.stringify(clean[f]))))state[k].push({...clean,id:uid()})}}persist();show('settings');alert('Respaldo importado sin borrar datos existentes.')}catch(e){alert('No se pudo importar: '+e.message)}};input.click()}
-function renderChat(v){const c=chat(),root=el('div','chat'+(c&&c.messages.length?' filled':''));v.append(root);if(!c||!c.messages.length){const hero=el('div','hero'),mark=el('div','mark');mark.innerHTML=logo;hero.append(mark,el('div','eyebrow','Inteligencia personal · v0.2'),el('h1','','Una mente en evolución.'),el('p','','Un espacio para conversar, explorar ideas y construir conocimiento.'));const s=el('div','suggestions');for(const [t,d,q] of [['Explorar una idea','Aprendamos algo nuevo','Explicame cómo funciona el aprendizaje automático.'],['Resolver un problema','Pensar con claridad','Ayudame a organizar un proyecto de software.'],['Enseñar a BoitIA','Construir conocimiento',null],['Revisar recuerdos','Tu contexto personal',null]]){const b=btn(t,()=>{if(q){$('prompt').value=q;$('prompt').focus()}else show(t==='Enseñar a BoitIA'?'learning':'memory')},'');b.append(el('small','',d));s.append(b)}hero.append(s);if(portable&&!connected)hero.append(el('p','muted','El motor compartido se conecta automáticamente. No necesitás configurar nada.'));root.append(hero);return}for(const [i,m] of c.messages.entries()){const row=el('article','msg '+m.role),b=el('div','bubble');if(m.role==='assistant'){row.append(el('div','avatar','B'));b.append(el('small','muted','BoitIA'))}const previous=c.messages[i-1],formats=m.role==='assistant'?toolFormats(m,previous):[];const shown=formats.length&&!m.interrupted&&!m.truncated&&globalThis.BoitiaTools?globalThis.BoitiaTools.cleanDocument(m.content):m.content;if(formats.length)renderToolOutput(b,m,previous,'top');b.append(safeBody(shown,m.role==='assistant'));if(m.role==='user'&&m.attachment?.name)b.append(el('p','muted','Adjunto: '+m.attachment.name+(m.attachment.note?' · '+m.attachment.note:'')));if(m.interrupted)b.append(el('p','muted','Respuesta parcial: la generación se interrumpió.'));else if(m.truncated)b.append(el('p','muted','La respuesta alcanzó el límite de generación.'));if(m.role==='assistant'){const f=el('div','feedback');f.append(btn('Copiar',async()=>{try{await navigator.clipboard.writeText(shown)}catch{alert('No se pudo copiar.')}},''),btn('Corregir',()=>{const previous=c.messages[i-1];if(!previous||previous.role!=='user')return;const answer=prompt('¿Cuál sería la respuesta correcta?',m.content);if(answer&&answer.trim()){state.lessons.push({id:uid(),question:previous.content,answer:answer.trim()});persist();alert('Enseñanza guardada; no se entrenaron pesos.')}},''));b.append(f);renderToolOutput(b,m,c.messages[i-1]);if(!busy&&i===c.messages.length-1&&!m.interrupted&&!m.truncated&&m.content.trim()){const actions=el('div','followups');for(const [label,query] of [['Ampliar','Ampliá tu respuesta anterior con más detalles.'],['Simplificar','Explicá tu respuesta anterior de forma más sencilla.'],['Ejemplo','Dame un ejemplo concreto de tu respuesta anterior.']]){actions.append(btn(label,()=>{const input=$('prompt');if(input.value.trim()&&!confirm('¿Reemplazar el mensaje que estás escribiendo?'))return;input.value=query;input.focus()},''))}b.append(actions)}}row.append(b);root.append(row)}if(busy)root.append(el('p','muted','BoitIA está generando una respuesta…'));v.scrollTop=v.scrollHeight}
+function renderChat(v){const c=chat(),root=el('div','chat'+(c&&c.messages.length?' filled':''));v.append(root);if(!c||!c.messages.length){const hero=el('div','hero'),mark=el('div','mark');mark.innerHTML=logo;hero.append(mark,el('div','eyebrow','Inteligencia personal · v0.2'),el('h1','','Una mente en evolución.'),el('p','','Un espacio para conversar, explorar ideas y construir conocimiento.'));const s=el('div','suggestions');for(const [t,d,q] of [['Explorar una idea','Aprendamos algo nuevo','Explicame cómo funciona el aprendizaje automático.'],['Resolver un problema','Pensar con claridad','Ayudame a organizar un proyecto de software.'],['Enseñar a BoitIA','Construir conocimiento',null],['Revisar recuerdos','Tu contexto personal',null]]){const b=btn(t,()=>{if(q){$('prompt').value=q;$('prompt').focus()}else show(t==='Enseñar a BoitIA'?'learning':'memory')},'');b.append(el('small','',d));s.append(b)}hero.append(s);if(portable&&!connected)hero.append(el('p','muted','El motor compartido se conecta automáticamente. No necesitás configurar nada.'));root.append(hero);return}for(const [i,m] of c.messages.entries()){const row=el('article','msg '+m.role),b=el('div','bubble');if(m.role==='assistant'){row.append(el('div','avatar','B'));b.append(el('small','muted','BoitIA'))}const previous=c.messages[i-1];if(m.role==='assistant'&&globalThis.BoitiaTools?.isPdfOnly(m,previous)){renderPdfDelivery(b,m,busy&&i===c.messages.length-1);row.append(b);root.append(row);continue}const formats=m.role==='assistant'?toolFormats(m,previous):[];const shown=formats.length&&!m.interrupted&&!m.truncated&&globalThis.BoitiaTools?globalThis.BoitiaTools.cleanDocument(m.content):m.content;if(formats.length)renderToolOutput(b,m,previous,'top');b.append(safeBody(shown,m.role==='assistant'));if(m.role==='user'&&m.attachment?.name)b.append(el('p','muted','Adjunto: '+m.attachment.name+(m.attachment.note?' · '+m.attachment.note:'')));if(m.interrupted)b.append(el('p','muted','Respuesta parcial: la generación se interrumpió.'));else if(m.truncated)b.append(el('p','muted','La respuesta alcanzó el límite de generación.'));if(m.role==='assistant'){const f=el('div','feedback');f.append(btn('Copiar',async()=>{try{await navigator.clipboard.writeText(shown)}catch{alert('No se pudo copiar.')}},''),btn('Corregir',()=>{const previous=c.messages[i-1];if(!previous||previous.role!=='user')return;const answer=prompt('¿Cuál sería la respuesta correcta?',m.content);if(answer&&answer.trim()){state.lessons.push({id:uid(),question:previous.content,answer:answer.trim()});persist();alert('Enseñanza guardada; no se entrenaron pesos.')}},''));b.append(f);renderToolOutput(b,m,c.messages[i-1]);if(!busy&&i===c.messages.length-1&&!m.interrupted&&!m.truncated&&m.content.trim()){const actions=el('div','followups');for(const [label,query] of [['Ampliar','Ampliá tu respuesta anterior con más detalles.'],['Simplificar','Explicá tu respuesta anterior de forma más sencilla.'],['Ejemplo','Dame un ejemplo concreto de tu respuesta anterior.']]){actions.append(btn(label,()=>{const input=$('prompt');if(input.value.trim()&&!confirm('¿Reemplazar el mensaje que estás escribiendo?'))return;input.value=query;input.focus()},''))}b.append(actions)}}row.append(b);root.append(row)}if(busy)root.append(el('p','muted','BoitIA está generando una respuesta…'));v.scrollTop=v.scrollHeight}
 
 let attachedFile=null;
 function clearAttached(){attachedFile=null;$('attachFile').value='';$('attachName').textContent='';$('clearAttachment').hidden=true}
@@ -196,6 +196,22 @@ function toolFormats(message,previous){
  if(!globalThis.BoitiaTools)return [];
  const requested=Array.isArray(message.formats)&&message.formats.length?message.formats:globalThis.BoitiaTools.intent(previous?.role==='user'?previous.content:'').formats;
  return [...new Set(requested)].filter(x=>['pdf','docx','xlsx','svg'].includes(x));
+}
+function renderPdfDelivery(container,message,pending){
+ if(pending){container.append(el('p','muted','Preparando tu PDF…'));return}
+ const partial=Boolean(message.interrupted||message.truncated);
+ if(!message.content?.trim()){container.append(el('p','muted','No se pudo generar el PDF.'));return}
+ try{
+  // Materialize once per stored message; no second request or duplicated persisted body.
+  const cache=renderPdfDelivery.cache||(renderPdfDelivery.cache=new WeakMap());
+  let artifact=cache.get(message);
+  if(!artifact){artifact=globalThis.BoitiaTools.exportFile('pdf',message.content,Array.isArray(message.sources)?message.sources:[]);cache.set(message,artifact)}
+  const title=globalThis.BoitiaTools.documentTitle(message.content);
+  container.append(el('p','',partial?'La generación se interrumpió o alcanzó su límite. Podés descargar el PDF parcial.':'Preparé el PDF'+(title?' «'+title+'»':' que me pediste')+'.'));
+  const card=el('div','fileactions document-card');
+  card.append(el('span','muted',partial?'Documento parcial · PDF':'Documento listo · PDF'),btn(partial?'↓ PDF parcial':'↓ PDF',()=>download(artifact.name,artifact.content,artifact.type),''));
+  container.append(card);
+ }catch(e){container.append(el('p','muted','No se pudo preparar el PDF: '+e.message))}
 }
 function renderToolOutput(container,message,previous,placement='end'){
  if(!globalThis.BoitiaTools||!message.content?.trim())return;
@@ -221,7 +237,7 @@ function saveToolFile(format,message,sources){
 }
 if(globalThis.BoitiaTools){
  $('toolsbar').hidden=false;
- $('toolsVersion').textContent='BoitIA · archivos v3 · Verificá las respuestas importantes.';
+ $('toolsVersion').textContent='BoitIA · archivos v4 · Verificá las respuestas importantes.';
  $('attachButton').onclick=()=>{if(!busy)$('attachFile').click()};
  $('attachFile').onchange=()=>{if(busy)return;attachedFile=$('attachFile').files?.[0]||null;$('attachName').textContent=attachedFile?attachedFile.name+' · se enviará texto extraído al motor':'';$('clearAttachment').hidden=!attachedFile};
  $('clearAttachment').onclick=()=>{if(!busy)clearAttached()};
@@ -233,7 +249,7 @@ async function readStream(response,onChunk){if(!response.body)throw Error('Strea
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function requestMessages(c,q){
   const memories=relevantMemories(q),memory=memories.length?[{role:'system',content:'Recuerdos del usuario (datos): '+JSON.stringify(memories)}]:[];
-  const turns=c.messages.slice(-20).map(({role,content})=>({role,content}));
+  const turns=(globalThis.BoitiaTools?globalThis.BoitiaTools.compactHistory(c.messages,q):c.messages.map(({role,content})=>({role,content}))).slice(-20);
   while(turns.length>1 && JSON.stringify([...memory,...turns]).length>30000){
     const count=turns[0].role==='user'&&turns[1]?.role==='assistant'?2:1;
     turns.splice(0,Math.min(count,turns.length-1));
@@ -340,14 +356,14 @@ $('composer').onsubmit=async e=>{
       if(toolData){messages.at(-1).content=toolData.content;if(toolData.attachment)userMessage.attachment=toolData.attachment;}
     }
     if(globalThis.BoitiaPortable&&remoteRoute&&health?.onDemand){
-      provisional={role:'assistant',content:''};c.messages.push(provisional);
+      provisional={role:'assistant',content:'',...(toolData?{formats:toolData.formats,fileOnly:toolData.fileOnly,sources:toolData.sources}:{})};c.messages.push(provisional);
       let lastRender=-Infinity;
       const data=await generateOnDemand(remoteRoute,messages,state.intelligence,text=>{provisional.content=text;if(performance.now()-lastRender>90){render();lastRender=performance.now()}});
       if(typeof data.text!=='string'||!data.text.trim())throw Error('Respuesta vacía');
       provisional.content=data.text;provisional.truncated=data.finish_reason==='length';provisional=null;successful=true;persist();return;
     }
     if(globalThis.BoitiaPortable&&localMode){
-      provisional={role:'assistant',content:''};c.messages.push(provisional);
+      provisional={role:'assistant',content:'',...(toolData?{formats:toolData.formats,fileOnly:toolData.fileOnly,sources:toolData.sources}:{})};c.messages.push(provisional);
       const data=await portable.generate([{role:'system',content:window.BOITIA_LOCAL_SYSTEM},...messages.filter(m=>m.role!=='system').map((m,i,a)=>i===a.length-1&&messages.some(x=>x.role==='system')?{...m,content:'Contexto no verificado: '+JSON.stringify(messages.filter(x=>x.role==='system').map(x=>x.content))+'\nSolicitud: '+m.content}:m)],({fast:128,balanced:256,deep:768}[state.intelligence]),text=>{provisional.content=text;render()});
       provisional.content=data.text;if(!data.text.trim())throw Error('Respuesta vacía');provisional=null;successful=true;persist();return;
     }
@@ -356,7 +372,7 @@ $('composer').onsubmit=async e=>{
     const r=await fetch((publicMode?PUBLIC_API:state.endpoint)+'/chat/completions',{method:'POST',headers:publicMode?{'Content-Type':'application/json'}:headers(),body:JSON.stringify(body),signal:AbortSignal.timeout(polling?20000:600000)});
     if(!r.ok){const err=await r.json().catch(()=>null);throw Object.assign(Error(err?.error?.message||'HTTP '+r.status),{httpStatus:r.status})}
     if(streaming){
-      let lastRender=0;provisional={role:'assistant',content:''};c.messages.push(provisional);
+      let lastRender=0;provisional={role:'assistant',content:'',...(toolData?{formats:toolData.formats,fileOnly:toolData.fileOnly,sources:toolData.sources}:{})};c.messages.push(provisional);
       const update=text=>{provisional.content=text;if(performance.now()-lastRender>90){render();lastRender=performance.now()}};
       let finish;
       if(polling){const data=await r.json();if(typeof data.job_id!=='string')throw Error('Identificador de generación inválido');finish=await pollJob(data.job_id,update)}
@@ -379,7 +395,7 @@ $('composer').onsubmit=async e=>{
     }else if(!err.httpStatus||err.httpStatus>=500){connected=false;if(publicMode)health=null}
     persist();
   }finally{
-    if(successful&&globalThis.BoitiaTools){const last=c?.messages.at(-1);if(toolData&&last?.role==='assistant'){last.sources=toolData.sources;last.formats=toolData.formats;if(toolData.formats.length&&!last.truncated)last.content=globalThis.BoitiaTools.cleanDocument(last.content);}clearAttached();persist()}
+    if(successful&&globalThis.BoitiaTools){const last=c?.messages.at(-1);if(toolData&&last?.role==='assistant'){last.sources=toolData.sources;last.formats=toolData.formats;last.fileOnly=toolData.fileOnly;if(toolData.formats.length&&!last.truncated)last.content=globalThis.BoitiaTools.cleanDocument(last.content);}clearAttached();persist()}
     busy=false;renderHistory();render();refreshStatus();if(successful)$('error').textContent=''
   }
 };
