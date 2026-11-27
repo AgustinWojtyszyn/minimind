@@ -6,7 +6,7 @@ const boilerplate='Como soy un modelo de lenguaje, no puedo generar ni entregart
 const c={messages:[]},elements={prompt:{value:prompt},composer:{},error:{textContent:''}};
 const el=(tag,cls,text)=>({tag,cls,text,children:[],append(...children){this.children.push(...children)}});
 let posted=null, downloads=[];
-const ctx={TextEncoder,TextDecoder,AbortSignal,Date,JSON,Error,Object,performance,Blob,URLSearchParams,
+const ctx={logo:'<svg></svg>',TextEncoder,TextDecoder,AbortSignal,Date,JSON,Error,Object,performance,Blob,URLSearchParams,
   c, PUBLIC_API:'/api/boitia/v1', connected:true,publicMode:true,busy:false,apiModel:'boitia',health:{profiles:{}},state:{intelligence:'balanced'}, attachedFile:null,
   $:k=>elements[k],chat:()=>c,relevantMemories:()=>[],persist:()=>{},render:()=>{},renderHistory:()=>{},refreshStatus:()=>{},clearAttached:()=>{},
   el,btn:(label,fn)=>({label,fn}),download:(name,data,type)=>downloads.push({name,data,type}),alert:e=>{throw Error(e)},
