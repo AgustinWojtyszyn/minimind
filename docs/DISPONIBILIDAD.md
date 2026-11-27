@@ -105,3 +105,29 @@ python -m compileall -q boitia frontend deploy
 ```
 
 Las pruebas locales cubren CORS opt-in, publicación de registro sin secretos, conexión automática de un visitante nuevo, rotación de túnel, respaldo local por consentimiento, validación de URL, persistencia existente y transporte. La inferencia real en Cloudflare, Modal, ZeroGPU y Oracle, sus presupuestos y compatibilidad externa requieren validación antes de registrar. GitHub Pages ya está configurado por el propietario; los motores nuevos no se dieron de alta desde el entorno de desarrollo.
+
+## Actualización de arquitectura · noviembre 2026
+
+La prioridad actual del cliente público es Cloudflare → Kaggle → Modal → ZeroGPU → CPU.
+Solo se seleccionan URL presentes en el registro; el respaldo local se habilita mediante
+«activar motor local» y se descarga únicamente al necesitarlo, con consentimiento.
+El código de Cloudflare 3036 suspende ese endpoint hasta las 00:00 UTC en ese navegador;
+otros errores recuperables se enfrían durante 60 segundos. No equivale a una lectura
+global de cuotas de la cuenta. Cada consulta puede realizar como máximo un reintento
+en otro motor, y reemplaza el texto parcial solo al recibir una respuesta completa.
+El cliente registra proveedor, duración, intento y estado técnico (sin contenido de la conversación).
+
+### Conocimientos documentales locales
+
+Adjuntá un archivo compatible y escribí «Aprendé de este documento y utilizalo en futuras conversaciones».
+El texto se extrae localmente, se conserva en el perfil del navegador y se recuperan
+hasta tres fragmentos relevantes por consulta mediante coincidencias léxicas; las citas [D1],
+[D2] y [D3] identifican los documentos recuperados. No es entrenamiento neuronal ni
+sincronización por cuenta. No compartas el perfil del navegador si querés mantener
+los documentos privados. Solo los fragmentos necesarios se incluyen en solicitudes al motor.
+«Mostrame mis documentos» lista los archivos; «Olvidá el documento 1» elimina el conocimiento.
+Volver a aprender un archivo con el mismo nombre actualiza su contenido. El respaldo JSON
+incluye los conocimientos locales (puede contener información privada).
+Los límites de esta versión son 20 documentos, 100.000 caracteres por documento,
+500.000 caracteres totales, 60 páginas de PDF de texto y hasta 500 filas de la primera hoja
+de XLSX. La extracción de documentos y estadísticas no ejecuta macros o fórmulas.

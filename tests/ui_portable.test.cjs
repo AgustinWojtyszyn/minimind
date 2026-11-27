@@ -22,7 +22,7 @@ vm.runInContext(html.slice(html.indexOf('function validKaggle('),html.indexOf('f
  registry.cloudflare_url='https://boitia-ai.owner.workers.dev';
  remoteReady=false;remoteCalls=[];
  assert.equal(await ctx.connectPublic(),true);assert.equal(ctx.remoteRoute.provider,'cloudflare');
- assert.deepEqual(remoteCalls,['engine.json','https://new-tunnel.trycloudflare.com/api/boitia/v1/health']);
+ assert.deepEqual(remoteCalls,['engine.json']);
  ctx.remoteCooldown.set(registry.cloudflare_url,Date.now()+60000);
  remoteReady=false;remoteCalls=[];
  assert.equal(await ctx.connectPublic(),true);assert.equal(ctx.remoteRoute.provider,'modal');assert.equal(ctx.health.onDemand,true);

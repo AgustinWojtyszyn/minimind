@@ -15,7 +15,7 @@ def render_index():
     marker = "<script>"
     assert text.count(marker) == 1
     config = json.dumps(SYSTEM_PROMPT, ensure_ascii=False).replace("<", "\\u003c")
-    text = text.replace(marker, '<script src="pwa.js"></script>\n<script src="client.js"></script>\n<script src="tools.js?v=5"></script>\n<script>window.BOITIA_LOCAL_SYSTEM='+config+';</script>\n'+marker, 1)
+    text = text.replace(marker, '<script src="pwa.js"></script>\n<script src="client.js"></script>\n<script src="tools.js?v=6"></script>\n<script>window.BOITIA_LOCAL_SYSTEM='+config+';</script>\n'+marker, 1)
     return text
 
 

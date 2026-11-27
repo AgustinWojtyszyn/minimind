@@ -64,11 +64,11 @@ async function sharedRegistry(){
 }
 async function selectShared(config){
  const candidates=[];let occupied=null;
- for(const provider of ['kaggle','cloudflare','modal','zerogpu','cpu']){
+ for(const provider of ['cloudflare','kaggle','modal','zerogpu','cpu']){
    const value=config[provider+'_url'];if(!value)continue;
    try{
      const root=provider==='kaggle'?validKaggle(value).replace(/\/api\/boitia\/v1$/,''):validRemote(provider,value);
-     if((remoteCooldown.get(root)||0)>Date.now())continue;
+     if(Math.max(remoteCooldown.get(root)||0,Number(state.quotaUntil?.[root])||0)>Date.now())continue;
      candidates.push({provider,root});
    }catch{}
  }
@@ -92,10 +92,14 @@ async function selectShared(config){
  if(occupied){PUBLIC_API=occupied.shared;health=occupied.data;remoteRoute=occupied.route;publicMode=true;localMode=false;connected=true;apiModel='boitia';return true}
  return false;
 }
-async function connectPublic(){if(connecting)return false;connecting=true;refreshStatus();try{
+async function connectPublic(allowLocal=true){if(connecting)return false;connecting=true;refreshStatus();try{
  if(portable){
    remoteRoute=null;
    try{if(await selectShared(await sharedRegistry()))return true}catch{}
+   if(allowLocal&&state.localEnabled===true){
+     const info=await portable.init(message=>{$('error').textContent=message});
+     localMode=true;publicMode=false;connected=true;health={model:info.model+' · '+info.device};$('error').textContent='';return true;
+   }
    throw Error('El motor compartido está temporalmente fuera de servicio. Se reconectará automáticamente.');
 
  }
@@ -107,7 +111,7 @@ function refreshStatus(){$('dot').classList.toggle('on',connected);$('status').t
 function renderHistory(){$('history').replaceChildren();for(const c of [...state.chats].reverse()){const b=btn(c.title,()=>{if(busy)return;active=c.id;show('chat')},c.id===active?'active':'');$('history').append(b)}}
 function show(p){if(['memory','learning','lab'].includes(p))p='chat';page=p;closeMenu();$('title').textContent=({chat:'Conversación',memory:'Memoria',learning:'Aprendizaje',lab:'Laboratorio',settings:'Configuración'})[p];document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===p));$('composer').classList.toggle('hide',p!=='chat');$('error').textContent='';renderHistory();render();refreshStatus()}
 function render(){const v=$('view');v.replaceChildren();if(page==='chat'){renderChat(v);return}const root=el('div','page');v.append(root);const heading=(name,desc)=>{root.append(el('div','eyebrow','Boiti / Workspace'),el('h1','',name),el('p','',desc))};const card=(name)=>{const c=el('div','card');c.append(el('h2','',name));root.append(c);return c};
-if(page==='settings'){heading('Configuración','Administrá tus datos y preferencias personales.');const c=card('Conexión');c.append(el('p','',connected?'Boiti está disponible.':'Boiti se está conectando automáticamente.'));if(portable)c.append(el('p','muted','Las consultas pueden procesarse en un servicio remoto. Motor actual: '+(health?.model||'conexión automática')+'.'));if(!portable){c.append(el('p','muted',publicMode?'Boiti está conectada automáticamente. No necesitás token.':'La conexión pública se detecta automáticamente si el servidor está disponible.'),btn('Reconectar automáticamente',async()=>{if(await connectPublic()){render();alert('Boiti conectada.')}else alert('El motor público no está disponible.')}));const endpoint=el('input');endpoint.type='url';endpoint.value=state.endpoint;endpoint.placeholder='https://servidor.example/v1';endpoint.setAttribute('aria-label','URL base de la API');const model=el('input');model.value=state.model;model.setAttribute('aria-label','Identificador del modelo');const key=el('input');key.type='password';key.value=token;key.placeholder='Opcional, solo en memoria de la pestaña';key.setAttribute('aria-label','Token de acceso');c.append(el('label','','URL base (termina en /v1)'),endpoint,el('label','','Modelo'),model,el('label','','Token de acceso'),key,el('p','muted','Usá exclusivamente servidores propios o de confianza. Los mensajes y recuerdos se enviarán al motor seleccionado.'),btn('Guardar y comprobar',async()=>{try{const u=new URL(endpoint.value);if(u.protocol!=='https:'&&!(u.protocol==='http:'&&['localhost','127.0.0.1'].includes(u.hostname)))throw Error('Se requiere HTTPS o localhost.');if(u.username||u.password||u.search||u.hash)throw Error('URL base inválida.');state.endpoint=u.href.replace(/\/$/,'');state.model=model.value.trim()||'boitia';token=key.value;publicMode=false;connected=false;persist();refreshStatus();const res=await fetch(state.endpoint+'/models',{headers:headers(),signal:AbortSignal.timeout(10000)});if(!res.ok)throw Error('HTTP '+res.status);const data=await res.json();if(!Array.isArray(data.data))throw Error('Respuesta /models inválida');const ids=data.data.map(m=>m.id);apiModel=state.model==='boitia'&&!ids.includes('boitia')&&ids.includes('selfe')?'selfe':state.model;connected=true;refreshStatus();alert('Conexión verificada.')}catch(e){connected=false;refreshStatus();alert('No se pudo conectar: '+e.message)}},'primary'))}const d=card('Datos y privacidad');d.append(el('p','muted','Tus conversaciones, recuerdos y enseñanzas se guardan en este dispositivo. Podés exportarlos o importarlos. Las consultas se procesan en el motor disponible.'),btn('Exportar espacio de trabajo',()=>download('boitia-backup.json',JSON.stringify({chats:state.chats,memories:state.memories,lessons:state.lessons},null,2),'application/json')),btn('Importar respaldo',importBackup),btn('Borrar datos locales',()=>{if(confirm('¿Eliminar todas las conversaciones, recuerdos y enseñanzas de este navegador?')){state.chats=[];state.memories=[];state.lessons=[];active=null;persist();show('settings')}},'secondary danger'))}}
+if(page==='settings'){heading('Configuración','Administrá tus datos y preferencias personales.');const c=card('Conexión');c.append(el('p','',connected?'Boiti está disponible.':'Boiti se está conectando automáticamente.'));if(portable)c.append(el('p','muted','Las consultas pueden procesarse en un servicio remoto. Motor actual: '+(health?.model||'conexión automática')+'.'));if(!portable){c.append(el('p','muted',publicMode?'Boiti está conectada automáticamente. No necesitás token.':'La conexión pública se detecta automáticamente si el servidor está disponible.'),btn('Reconectar automáticamente',async()=>{if(await connectPublic()){render();alert('Boiti conectada.')}else alert('El motor público no está disponible.')}));const endpoint=el('input');endpoint.type='url';endpoint.value=state.endpoint;endpoint.placeholder='https://servidor.example/v1';endpoint.setAttribute('aria-label','URL base de la API');const model=el('input');model.value=state.model;model.setAttribute('aria-label','Identificador del modelo');const key=el('input');key.type='password';key.value=token;key.placeholder='Opcional, solo en memoria de la pestaña';key.setAttribute('aria-label','Token de acceso');c.append(el('label','','URL base (termina en /v1)'),endpoint,el('label','','Modelo'),model,el('label','','Token de acceso'),key,el('p','muted','Usá exclusivamente servidores propios o de confianza. Los mensajes y recuerdos se enviarán al motor seleccionado.'),btn('Guardar y comprobar',async()=>{try{const u=new URL(endpoint.value);if(u.protocol!=='https:'&&!(u.protocol==='http:'&&['localhost','127.0.0.1'].includes(u.hostname)))throw Error('Se requiere HTTPS o localhost.');if(u.username||u.password||u.search||u.hash)throw Error('URL base inválida.');state.endpoint=u.href.replace(/\/$/,'');state.model=model.value.trim()||'boitia';token=key.value;publicMode=false;connected=false;persist();refreshStatus();const res=await fetch(state.endpoint+'/models',{headers:headers(),signal:AbortSignal.timeout(10000)});if(!res.ok)throw Error('HTTP '+res.status);const data=await res.json();if(!Array.isArray(data.data))throw Error('Respuesta /models inválida');const ids=data.data.map(m=>m.id);apiModel=state.model==='boitia'&&!ids.includes('boitia')&&ids.includes('selfe')?'selfe':state.model;connected=true;refreshStatus();alert('Conexión verificada.')}catch(e){connected=false;refreshStatus();alert('No se pudo conectar: '+e.message)}},'primary'))}const d=card('Datos y privacidad');d.append(el('p','muted','Tus conversaciones, recuerdos y enseñanzas se guardan en este dispositivo. Podés exportarlos o importarlos. Las consultas se procesan en el motor disponible.'),btn('Exportar espacio de trabajo',()=>download('boitia-backup.json',JSON.stringify({chats:state.chats,memories:state.memories,lessons:state.lessons,documents:state.documents||[]},null,2),'application/json')),btn('Importar respaldo',importBackup),btn('Borrar datos locales',()=>{if(confirm('¿Eliminar todas las conversaciones, recuerdos y enseñanzas de este navegador?')){state.chats=[];state.memories=[];state.lessons=[];active=null;persist();show('settings')}},'secondary danger'))}}
 function renderInline(parent,text,depth=0){
   if(depth>8){parent.append(document.createTextNode(text));return}
   const pattern=/\\([\\`*_~[\]()#!>])|(`+)([^\n]*?)\2|\[([^\]\n]+)\]\((https?:\/\/[^\s<>()]+)\)|(\*\*|__)(?=\S)(.+?)\6|~~(?=\S)(.+?)~~|(?<![\w*])\*(?=\S)([^*\n]+?)\*(?!\*)|(?<![\w_])_(?=\S)([^_\n]+?)_(?![\w_])/g;
@@ -201,7 +205,7 @@ function safeBody(text,rich=true){
 }
 function rankSavedMemories(query,items){if(globalThis.BoitiaTools?.memoryRank)return globalThis.BoitiaTools.memoryRank(query,items);const words=t=>new Set((t.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu)||[]).filter(x=>x.length>2));const q=words(query);return items.map(m=>({text:m.text,score:[...words(m.text)].filter(x=>q.has(x)).length})).filter(m=>m.score>0).sort((a,b)=>b.score-a.score).slice(0,5).map(m=>m.text.slice(0,600))}
 function relevantMemories(query){const always=state.memories.filter(m=>m.kind==='instruction').slice(-5).map(m=>m.text.slice(0,600));const relevant=rankSavedMemories(query,state.memories.filter(m=>m.kind!=='instruction'));const examples=rankSavedMemories(query,state.lessons.map(x=>({text:x.question}))).map(q=>state.lessons.slice().reverse().find(x=>x.question.slice(0,600)===q)).filter(Boolean).slice(0,2).map(x=>'Ejemplo enseñado por el usuario: '+x.question.slice(0,600)+' => '+x.answer.slice(0,1200));return [...new Set([...always,...relevant,...examples])];}
-function importBackup(){const input=el('input');input.type='file';input.accept='.json,application/json';input.onchange=async()=>{try{const file=input.files[0];if(!file||file.size>10*1024*1024)throw Error('Archivo demasiado grande');const data=JSON.parse(await file.text());if(!['chats','memories','lessons'].every(k=>Array.isArray(data[k])))throw Error('Formato inválido');const string=x=>typeof x==='string';const validChat=c=>c&&string(c.title)&&Array.isArray(c.messages)&&c.messages.every(m=>m&&['user','assistant'].includes(m.role)&&string(m.content));const validMemory=m=>m&&string(m.text);const validLesson=m=>m&&string(m.question)&&string(m.answer);if(!data.chats.every(validChat)||!data.memories.every(validMemory)||!data.lessons.every(validLesson))throw Error('Registros inválidos');for(const [k,fields] of [['chats',['title','messages']],['memories',['text']],['lessons',['question','answer']]]){for(const x of data[k]){const clean=Object.fromEntries(fields.map(f=>[f,x[f]]));if(k==='memories'&&['instruction','fact'].includes(x.kind))clean.kind=x.kind;if(!state[k].some(y=>fields.every(f=>JSON.stringify(y[f])===JSON.stringify(clean[f]))))state[k].push({...clean,id:uid()})}}persist();show('settings');alert('Respaldo importado sin borrar datos existentes.')}catch(e){alert('No se pudo importar: '+e.message)}};input.click()}
+function importBackup(){const input=el('input');input.type='file';input.accept='.json,application/json';input.onchange=async()=>{try{const file=input.files[0];if(!file||file.size>10*1024*1024)throw Error('Archivo demasiado grande');const data=JSON.parse(await file.text());if(!['chats','memories','lessons'].every(k=>Array.isArray(data[k])))throw Error('Formato inválido');const string=x=>typeof x==='string';const validChat=c=>c&&string(c.title)&&Array.isArray(c.messages)&&c.messages.every(m=>m&&['user','assistant'].includes(m.role)&&string(m.content));const validMemory=m=>m&&string(m.text);const validLesson=m=>m&&string(m.question)&&string(m.answer);if(!data.chats.every(validChat)||!data.memories.every(validMemory)||!data.lessons.every(validLesson))throw Error('Registros inválidos');for(const [k,fields] of [['chats',['title','messages']],['memories',['text']],['lessons',['question','answer']]]){for(const x of data[k]){const clean=Object.fromEntries(fields.map(f=>[f,x[f]]));if(k==='memories'&&['instruction','fact'].includes(x.kind))clean.kind=x.kind;if(!state[k].some(y=>fields.every(f=>JSON.stringify(y[f])===JSON.stringify(clean[f]))))state[k].push({...clean,id:uid()})}}if(Array.isArray(data.documents)){const docs=Array.isArray(state.documents)?state.documents:[];for(const d of data.documents){if(!d||typeof d.name!=='string'||typeof d.text!=='string'||!d.text.trim()||d.name.length>160||d.text.length>100000)continue;if(docs.length>=20||docs.reduce((n,x)=>n+x.text.length,0)+d.text.length>500000)break;if(!docs.some(x=>x.name===d.name||x.text===d.text))docs.push({name:d.name,text:d.text,note:typeof d.note==='string'?d.note.slice(0,500):''})}state.documents=docs}persist();show('settings');alert('Respaldo importado sin borrar datos existentes.')}catch(e){alert('No se pudo importar: '+e.message)}};input.click()}
 function renderChat(v){const c=chat(),root=el('div','chat'+(c&&c.messages.length?' filled':''));v.append(root);if(!c||!c.messages.length){const hero=el('div','hero'),mark=el('div','mark');mark.innerHTML=logo;hero.append(mark,el('div','eyebrow','Inteligencia personal · v0.3'),el('h1','','Una mente en evolución.'),el('p','','Un espacio para conversar, explorar ideas y construir conocimiento.'));const s=el('div','suggestions');const groups=[
  ['Explorar una idea','Aprendamos algo nuevo',['Explicame una idea científica sorprendente con un ejemplo cotidiano.','Contame un dato fascinante sobre el universo y por qué importa.','¿Qué invento cambió nuestra vida sin que casi nadie lo note?','Enseñame un concepto útil que pueda aprender en cinco minutos.','Explicame cómo funciona una tecnología que usamos todos los días.']],
  ['Resolver un problema','Pensar con claridad',['Ayudame a dividir un problema complicado en pasos sencillos.','Mostrame una técnica para tomar mejores decisiones.','Proponeme un desafío de lógica y ayudame a resolverlo.','Ayudame a comparar dos opciones sin pasar por alto los riesgos.','Enseñame un método para identificar la causa de un problema.']],
@@ -270,8 +274,8 @@ function initVoice(){
 
 function renderToolOutput(container,message,previous,placement='end'){
  if(!globalThis.BoitiaTools||!message.content?.trim())return;
- const sources=Array.isArray(message.sources)?message.sources.filter(x=>globalThis.BoitiaTools.safeSource(x)).slice(0,5):[];
- if(sources.length&&placement==='end'){const list=el('div','sources-list');list.append(el('strong','','Fuentes consultadas · '+sources.length));sources.forEach((s,i)=>{const a=el('a','',(i+1)+'. '+s.title+' · '+String(s.kind||''));a.href=s.url;a.target='_blank';a.rel='noopener noreferrer';list.append(a)});container.append(list)}
+ const sources=Array.isArray(message.sources)?message.sources.filter(x=>globalThis.BoitiaTools.safeSource(x)).slice(0,8):[];
+ if(sources.length&&placement==='end'){const list=el('div','sources-list');list.append(el('strong','','Fuentes consultadas · '+sources.length));sources.forEach((s,i)=>{if(s.kind==='Documento local'){list.append(el('div','','['+s.citation+'] '+s.title+' · documento guardado en este dispositivo'));return}const a=el('a','',(i+1)+'. '+s.title+' · '+String(s.kind||''));a.href=s.url;a.target='_blank';a.rel='noopener noreferrer';list.append(a)});container.append(list)}
  if(busy||message.interrupted||message.truncated)return;
  const actions=el('div','fileactions');
  const formats=toolFormats(message,previous);
@@ -374,7 +378,7 @@ async function generateOnDemand(route,messages,mode,onChunk){
      clean.splice(idx,Math.min(clean[idx]?.role==='user'&&clean[idx+1]?.role==='assistant'?2:1,clean.length-idx-1));
    }
    const r=await fetch(route.root+'/api/boitia/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'boitia',messages:clean,mode,stream:true}),signal:AbortSignal.timeout(600000)});
-   if(!r.ok){const e=await r.json().catch(()=>null);throw Object.assign(Error(e?.error?.message||'Motor de respaldo no disponible.'),{httpStatus:r.status})}
+   if(!r.ok){const e=await r.json().catch(()=>null);throw Object.assign(Error(e?.error?.message||'Motor de respaldo no disponible.'),{httpStatus:r.status,providerCode:String(e?.error?.provider_code||'')})}
    if(r.headers?.get('content-type')?.includes('text/event-stream')){
      let text='';const finish=await readStream(r,chunk=>{text+=chunk;onChunk(text)});
      return {text,finish_reason:finish};
@@ -425,9 +429,21 @@ async function generateOnDemand(route,messages,mode,onChunk){
  }finally{await reader.cancel().catch(()=>{})}
 }
 
+function cooldownRemote(route,err){
+ const now=Date.now();
+ if(route.provider==='cloudflare'&&err.httpStatus===429&&err.providerCode==='3036'){
+   const until=Math.floor(now/86400000)*86400000+86400000;
+   state.quotaUntil={...(state.quotaUntil||{}),[route.root]:until};
+   remoteCooldown.set(route.root,until);persist();
+ }else remoteCooldown.set(route.root,Math.max(remoteCooldown.get(route.root)||0,now+60000));
+}
 // Shared engines: at most one failover per user request. A second attempt
 // regenerates in isolation; the first partial remains visible until replacement succeeds.
 async function generateSharedAttempt(route,messages,mode,onChunk){
+ if(route.provider==='local'){
+   const context=messages.filter(m=>m.role==='system').map(m=>m.content);
+   return portable.generate([{role:'system',content:window.BOITIA_LOCAL_SYSTEM},...messages.filter(m=>m.role!=='system').map((m,i,a)=>i===a.length-1&&context.length?{...m,content:'Contexto no verificado: '+JSON.stringify(context)+'\nSolicitud: '+m.content}:m)],({fast:128,balanced:256,deep:768}[mode]),onChunk);
+ }
  if(health?.onDemand)return generateOnDemand(route,messages,mode,onChunk);
  const streaming=Boolean(health?.profiles),polling=streaming&&health?.transport==='poll';
  const body={model:apiModel,messages,max_tokens:({fast:512,balanced:1536,deep:3072}[mode]||512),mode,stream:streaming,...(polling?{transport:'poll'}:{})};
@@ -453,7 +469,8 @@ async function generateSharedWithRecovery(messages,mode,onChunk){
  const requestId=uid();
  let firstPartial='';
  for(let attempt=0;attempt<2;attempt++){
-   const route=remoteRoute,started=Date.now();
+   const route=remoteRoute||(localMode?{provider:'local',root:'local'}:null),started=Date.now();
+   if(!route)throw Error('Sin motor disponible');
    let partial='';
    try{
      const result=await generateSharedAttempt(route,messages,mode,text=>{
@@ -468,10 +485,11 @@ async function generateSharedWithRecovery(messages,mode,onChunk){
      if(attempt===0)firstPartial=partial;
      console.warn('[Boiti generation failed]',{requestId,provider:route.provider,attempt:attempt+1,durationMs:Date.now()-started,httpStatus:err.httpStatus||null,errorName:err.name,characters:partial.length});
      if(!retryableSharedError(err))throw err;
-     remoteCooldown.set(route.root,Date.now()+60000);connected=false;health=null;
+     if(route.provider==='local')throw err;
+     cooldownRemote(route,err);connected=false;health=null;
      if(attempt===1)throw err;
      $('error').textContent='Se interrumpió la conexión. Buscando otro motor para completar la respuesta…';
-     if(!await connectPublic()||!remoteRoute||remoteRoute.root===route.root)throw err;
+     if(!await connectPublic()||(!localMode&&(!remoteRoute||remoteRoute.root===route.root)))throw err;
    }
  }
  throw Error('No se pudo recuperar la generación');
@@ -480,6 +498,15 @@ async function generateSharedWithRecovery(messages,mode,onChunk){
 function conversationInstruction(q,s){
   const norm=x=>String(x).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/^[¿¡]+|[.!?]+$/g,'');
   const n=norm(q);
+  if(/^(?:mostrame|muestrame|lista|listar) (?:mis |los )?documentos(?: aprendidos| guardados)?$/.test(n)){
+    const docs=Array.isArray(s.documents)?s.documents:[];
+    return docs.length?'Documentos aprendidos en este navegador:\n\n'+docs.map((d,i)=>(i+1)+'. '+d.name).join('\n')+'\n\nPara eliminar: «Olvidá el documento 1».':'No tenés documentos aprendidos. Adjuntá uno y escribí «Aprendé de este documento».';
+  }
+  const remove=n.match(/^(?:olvida|borra|elimina) (?:el )?documento (\d+)$/);
+  if(remove){const i=Number(remove[1])-1;if(!s.documents?.[i])return 'No encontré ese documento.';s.documents.splice(i,1);return 'Eliminé ese conocimiento. Las citas que ya aparecieron en conversaciones anteriores se conservan.';}
+  if(n==='activar motor local'){s.localEnabled=true;return 'Activé el respaldo en este dispositivo. Si los motores remotos no están disponibles, se descargarán los pesos del modelo (pueden ocupar varios GB); puede consumir batería y ser lento.';}
+  if(n==='desactivar motor local'){s.localEnabled=false;return 'Desactivé el respaldo local para futuras conexiones.';}
+
   if(/^(?:que (?:recordas|recuerdas|sabes) (?:de|sobre) mi|(?:mostrame|mostrame|muestrame|lista|listar) (?:mis |los )?recuerdos|que tenes guardado de mi|que instrucciones (?:recordas|tenes))$/.test(n)){
     const items=s.memories.map((m,i)=>(i+1)+'. '+m.text);
     return items.length?'Esto tengo guardado en este dispositivo:\n\n'+items.join('\n')+'\n\nPodés decirme «Olvidá el recuerdo 1» para quitar uno.':'Todavía no tengo recuerdos guardados. Decime «Recordá que...» para guardar algo.';
@@ -496,8 +523,20 @@ function conversationInstruction(q,s){
 
 $('composer').onsubmit=async e=>{
   e.preventDefault();const q=$('prompt').value.trim();if(!q||busy)return;
+  if(globalThis.BoitiaTools&&typeof attachedFile!=='undefined'&&attachedFile&&/^(?:por favor,?\s+)?(?:aprend[eé]|aprende|actualiz[aá]|guarda|guard[aá])\s+(?:de\s+)?(?:este|el|esta|la)\s+(?:documento|archivo|planilla|informaci[oó]n)\b/i.test(q)){
+    busy=true;refreshStatus();$('error').textContent='Indexando documento en este navegador…';
+    try{
+      const learned=await globalThis.BoitiaTools.learnDocument(state.documents,attachedFile);
+      const old=state.documents;state.documents=learned.docs;
+      try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){state.documents=old;throw Error('No hay espacio para guardar ese documento.')}
+      let c=chat();if(!c){c={id:uid(),title:q.slice(0,60),messages:[]};state.chats.push(c);active=c.id}
+      c.messages.push({role:'user',content:q},{role:'assistant',content:(learned.status==='duplicate'?'Ese documento ya estaba guardado: ':learned.status==='updated'?'Actualicé el conocimiento de ': 'Aprendí de ')+learned.doc.name+'. Recuperaré fragmentos relevantes en conversaciones futuras de este navegador. No entrené los pesos del modelo. '+(learned.doc.note||'')});
+      $('prompt').value='';clearAttached();persist();$('error').textContent='';
+    }catch(e){$('error').textContent=e.message}finally{busy=false;renderHistory();render();refreshStatus()}
+    return;
+  }
   const localReply=(typeof attachedFile==='undefined'||!attachedFile)?conversationInstruction(q,state):null;
-  if(localReply!==null){let c=chat();if(!c){c={id:uid(),title:q.slice(0,60),messages:[]};state.chats.push(c);active=c.id}c.messages.push({role:'user',content:q},{role:'assistant',content:localReply});$('prompt').value='';$('error').textContent='';persist();renderHistory();render();return;}
+  if(localReply!==null){if(localMode&&state.localEnabled===false){connected=false;localMode=false;health=null;portable?.reset?.()}let c=chat();if(!c){c={id:uid(),title:q.slice(0,60),messages:[]};state.chats.push(c);active=c.id}c.messages.push({role:'user',content:q},{role:'assistant',content:localReply});$('prompt').value='';$('error').textContent='';persist();renderHistory();render();return;}
   $('error').textContent='';busy=true;refreshStatus();
   let c=null,provisional=null,userMessage=null,successful=false,toolData=null;
   try{
@@ -507,7 +546,7 @@ $('composer').onsubmit=async e=>{
     persist();renderHistory();render();
     const messages=requestMessages(c,q);
     if(globalThis.BoitiaTools){
-      try{toolData=await globalThis.BoitiaTools.prepare(q,attachedFile,message=>{$('error').textContent=message})}
+      try{toolData=await globalThis.BoitiaTools.prepare(q,attachedFile,message=>{$('error').textContent=message},state.documents)}
       catch(e){throw Object.assign(Error(e.message),{toolError:true})}
       $('error').textContent='';
       if(toolData){messages.at(-1).content=toolData.content;if(toolData.attachment)userMessage.attachment=toolData.attachment;}
@@ -548,7 +587,7 @@ $('composer').onsubmit=async e=>{
     if(c&&userMessage&&c.messages.at(-1)===userMessage){c.messages.pop();$('prompt').value=q}
     if(err.toolError){/* A failed tool lookup does not imply a failed engine. */}
     else if(globalThis.BoitiaPortable&&remoteRoute&&(!err.httpStatus||[429,403,503,502,504].includes(err.httpStatus))){
-      remoteCooldown.set(remoteRoute.root,Date.now()+60000);connected=false;health=null;
+      cooldownRemote(remoteRoute,err);connected=false;health=null;
     }else if(!err.httpStatus||err.httpStatus>=500){connected=false;if(publicMode)health=null}
     persist();
   }finally{
@@ -556,6 +595,6 @@ $('composer').onsubmit=async e=>{
     busy=false;renderHistory();render();refreshStatus();if(successful){$('error').textContent='';if(state.voiceOutput&&globalThis.BoitiaTools)speakMessage(c?.messages.at(-1),true)}
   }
 };
-setInterval(()=>{if((publicMode||portable)&&!busy&&!connecting)void connectPublic()},30000);
-$('intelligence').value=['fast','balanced','deep'].includes(state.intelligence)?state.intelligence:'balanced';state.intelligence=$('intelligence').value;$('intelligence').onchange=()=>{state.intelligence=$('intelligence').value;persist()};$('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('composer').requestSubmit()}};document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>show(b.dataset.view));$('new').onclick=newChat;$('menu').onclick=()=>{$('side').classList.toggle('open');$('backdrop').classList.toggle('open')};$('backdrop').onclick=closeMenu;$('theme').onclick=()=>{state.theme=state.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=state.theme;persist()};document.documentElement.dataset.theme=state.theme;document.querySelectorAll('.logo').forEach(n=>n.innerHTML=logo);active=null;persist();show('chat');void connectPublic();
+setInterval(()=>{if((publicMode||portable)&&!busy&&!connecting)void connectPublic(false)},30000);
+$('intelligence').value=['fast','balanced','deep'].includes(state.intelligence)?state.intelligence:'balanced';state.intelligence=$('intelligence').value;$('intelligence').onchange=()=>{state.intelligence=$('intelligence').value;persist()};$('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('composer').requestSubmit()}};document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>show(b.dataset.view));$('new').onclick=newChat;$('menu').onclick=()=>{$('side').classList.toggle('open');$('backdrop').classList.toggle('open')};$('backdrop').onclick=closeMenu;$('theme').onclick=()=>{state.theme=state.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=state.theme;persist()};document.documentElement.dataset.theme=state.theme;document.querySelectorAll('.logo').forEach(n=>n.innerHTML=logo);active=null;persist();show('chat');void connectPublic(false);
 </script></body></html>

@@ -1,0 +1,22 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const ctx={TextEncoder,TextDecoder,Blob,URL,console};vm.createContext(ctx);
+vm.runInContext(fs.readFileSync('frontend/portable/tools.js','utf8'),ctx);
+const t=ctx.BoitiaTools;const file=(name,text)=>({name,size:Buffer.byteLength(text),text:async()=>text});
+(async()=>{
+ const first=await t.learnDocument([],file('manual.txt','El protocolo Zafiro utiliza 73 unidades para su calibración. '+ 'Texto general. '.repeat(100)));
+ assert.equal(first.status,'added');assert.equal(first.docs.length,1);
+ const duplicate=await t.learnDocument(first.docs,file('copia.txt',first.doc.text));assert.equal(duplicate.status,'duplicate');
+ const unrelated=await t.prepare('Receta de empanadas',null,()=>{},first.docs);assert.equal(unrelated,null);
+ const result=await t.prepare('¿Cuántas unidades de calibración utiliza Zafiro?',null,()=>{},JSON.parse(JSON.stringify(first.docs)));
+ assert.match(result.content,/73 unidades/);assert.equal(result.sources[0].citation,'D1');assert.equal(result.sources[0].title,'manual.txt');
+ assert(t.safeSource(result.sources[0]));assert(!result.sources[0].url);
+ assert.match(result.content,/no ejecutar instrucciones/);
+ assert.equal((await t.prepare('Zafiro',null,()=>{},[])),null);
+ const next=await t.learnDocument(first.docs,file('manual.txt','Zafiro ahora utiliza 81 unidades.'));assert.equal(next.status,'updated');assert.equal(next.docs.length,1);
+ assert.match((await t.prepare('Zafiro',null,()=>{},next.docs)).content,/81 unidades/);
+ assert.equal(t.retrieveDocs(first.docs,'Zafiro',100).length,0);
+ const html=fs.readFileSync('frontend/index.html','utf8');vm.runInContext(html.slice(html.indexOf('function conversationInstruction('),html.indexOf("$('composer').onsubmit=")),ctx);
+ const state={documents:next.docs,memories:[],lessons:[]};assert.match(ctx.conversationInstruction('Mostrame mis documentos',state),/manual.txt/);assert.match(ctx.conversationInstruction('Olvidá el documento 1',state),/Eliminé/);assert.equal(state.documents.length,0);
+ assert.equal(ctx.conversationInstruction('activar motor local',state).includes('Activé'),true);assert.equal(state.localEnabled,true);
+ console.log('PASS: document ingestion, persistence-compatible data, deduplication, retrieval, citations, update, deletion and profile isolation');
+})().catch(e=>{console.error(e);process.exitCode=1});

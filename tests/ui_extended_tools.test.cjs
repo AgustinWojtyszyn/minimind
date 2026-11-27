@@ -37,6 +37,6 @@ vm.createContext(ctx);vm.runInContext(script,ctx);const t=ctx.BoitiaTools;
  const news=await t.prepare('Noticias sobre tecnología',null,()=>{});
  assert.equal(news.sources[0].url,'https://example.org/noticia');assert(news.content.includes('solo contienen metadatos'));
  assert.equal(calls.length,3);
- const page=fs.readFileSync('docs/index.html','utf8');assert(page.includes('tools.js?v=5'));assert(page.includes("setAttribute('sandbox','')"));assert(page.includes('initVoice()'));
+ const page=fs.readFileSync('docs/index.html','utf8');assert(page.includes('tools.js?v=6'));assert(page.includes("setAttribute('sandbox','')"));assert(page.includes('initVoice()'));
  console.log('PASS: PPTX, ZIP, static HTML security, vector SVG, stats, memory, simulated weather/news, voice UI');
 })().catch(e=>{console.error(e);process.exitCode=1});
